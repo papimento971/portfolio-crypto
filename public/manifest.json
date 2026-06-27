@@ -1,0 +1,16 @@
+{
+  "name": "Live Dashboard",
+  "short_name": "LiveDash",
+  "description": "Live Dashboard Trading",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b1b17",
+  "theme_color": "#0b1b17",
+  "icons": [
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
