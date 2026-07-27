@@ -463,12 +463,21 @@ export default function App() {
       ? (profitUSD / totals.totalInvestedUSD) * 100
       : 0;
 
-  function formatUSD(value) {
+  function getPriceDecimals(value) {
+    const v = Math.abs(Number(value) || 0);
+    if (v >= 100) return 2;
+    if (v >= 1) return 3;
+    if (v >= 0.1) return 4;
+    return 5;
+  }
+
+  function formatUSD(value, dynamicPrecision = false) {
+    const decimals = dynamicPrecision ? getPriceDecimals(value) : 2;
     return new Intl.NumberFormat("fr-FR", {
       style: "currency",
       currency: "USD",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
     }).format(value || 0);
   }
 
@@ -763,7 +772,7 @@ export default function App() {
                               ?.slice(0, 1)
                               .toUpperCase()}
                           </div>
-                        )}
+                        , true)}
 
                         <div>
                           <h3 style={styles.cardTitle}>
@@ -802,7 +811,7 @@ export default function App() {
                       </span>
 
                       <strong style={styles.currentPrice}>
-                        {formatUSD(asset.currentPrice)}
+                        {formatUSD(asset.currentPrice, true)}
                       </strong>
                     </div>
 
@@ -823,7 +832,7 @@ export default function App() {
                         </span>
 
                         <strong style={styles.lineValue}>
-                          {formatUSD(asset.buyPrice)}
+                          {formatUSD(asset.buyPrice, true)}
                         </strong>
                       </div>
 
@@ -1113,8 +1122,7 @@ export default function App() {
                   </span>
 
                   <strong style={styles.previewValue}>
-                    {formatUSD(
-                      (editingAsset.quantity *
+                    {formatUSD((editingAsset.quantity *
                         editingAsset.buyPrice +
                         Number(
                           additionalPurchase.quantity
