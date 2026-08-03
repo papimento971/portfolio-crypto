@@ -17,10 +17,19 @@ export default function App() {
   const [isAdding, setIsAdding] = useState(false);
 
   const [editingAsset, setEditingAsset] = useState(null);
-  const [additionalPurchase, setAdditionalPurchase] = useState({
+  const [transactionType, setTransactionType] = useState("purchase");
+  const [transactionForm, setTransactionForm] = useState({
     quantity: "",
-    buyPrice: "",
+    unitPrice: "",
   });
+  const [isSavingTransaction, setIsSavingTransaction] = useState(false);
+  const [transactionMessage, setTransactionMessage] = useState("");
+
+  const [historyAsset, setHistoryAsset] = useState(null);
+  const [historyItems, setHistoryItems] = useState([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [historyMessage, setHistoryMessage] = useState("");
+  const [undoingTransactionId, setUndoingTransactionId] = useState(null);
 
   const [usdToEur, setUsdToEur] = useState(0.92);
   const [message, setMessage] = useState("");
@@ -149,6 +158,36 @@ export default function App() {
     setSearchResults([]);
   }
 
+  async function insertTransaction({
+    portfolioId,
+    crypto,
+    type,
+    quantity,
+    unitPrice,
+    quantityBefore,
+    averagePriceBefore,
+    quantityAfter,
+    averagePriceAfter,
+  }) {
+    const { error } = await supabase.from("portfolio_transactions").insert([
+      {
+        portfolio_id: portfolioId,
+        crypto,
+        type,
+        quantity,
+        unit_price: unitPrice,
+        quantity_before: quantityBefore,
+        average_price_before: averagePriceBefore,
+        quantity_after: quantityAfter,
+        average_price_after: averagePriceAfter,
+      },
+    ]);
+
+    if (error) {
+      throw error;
+    }
+  }
+
   useEffect(() => {
     async function fetchFX() {
       try {
@@ -262,12 +301,12 @@ export default function App() {
       return;
     }
 
-    if (!quantity || quantity <= 0) {
+    if (!Number.isFinite(quantity) || quantity <= 0) {
       setMessage("Entre une quantité supérieure à zéro.");
       return;
     }
 
-    if (!buyPrice || buyPrice <= 0) {
+    if (!Number.isFinite(buyPrice) || buyPrice <= 0) {
       setMessage("Entre un prix d’achat supérieur à zéro.");
       return;
     }
@@ -275,130 +314,333 @@ export default function App() {
     setIsAdding(true);
     setMessage("");
 
-    const existingAsset = assets.find(
-      (asset) => asset.id === selectedToken.id
-    );
-
-    if (existingAsset) {
-      const oldInvestment =
-        existingAsset.quantity * existingAsset.buyPrice;
-
-      const newInvestment = quantity * buyPrice;
-      const totalQuantity = existingAsset.quantity + quantity;
-
-      const weightedAveragePrice =
-        totalQuantity > 0
-          ? (oldInvestment + newInvestment) / totalQuantity
-          : 0;
-
-      const { error } = await supabase
-        .from("portfolios")
-        .update({
-          quantite: totalQuantity,
-          prix_achat: weightedAveragePrice,
-        })
-        .eq("id", existingAsset.dbId);
-
-      if (error) {
-        console.error("Erreur mise à jour :", error);
-        setMessage("Erreur pendant la mise à jour de la position.");
-        setIsAdding(false);
-        return;
-      }
-
-      setMessage(
-        `${selectedToken.name} a été mis à jour avec le nouveau prix moyen.`
+    try {
+      const existingAsset = assets.find(
+        (asset) => asset.id === selectedToken.id
       );
-    } else {
-      const { error } = await supabase.from("portfolios").insert([
-        {
-          crypto: selectedToken.id,
-          quantite: quantity,
-          prix_achat: buyPrice,
-        },
-      ]);
 
-      if (error) {
-        console.error("Erreur ajout :", error);
-        setMessage("Erreur pendant l’ajout de la crypto.");
-        setIsAdding(false);
-        return;
+      if (existingAsset) {
+        const quantityBefore = existingAsset.quantity;
+        const averagePriceBefore = existingAsset.buyPrice;
+        const oldInvestment = quantityBefore * averagePriceBefore;
+        const newInvestment = quantity * buyPrice;
+        const quantityAfter = quantityBefore + quantity;
+        const averagePriceAfter =
+          (oldInvestment + newInvestment) / quantityAfter;
+
+        const { error } = await supabase
+          .from("portfolios")
+          .update({
+            quantite: quantityAfter,
+            prix_achat: averagePriceAfter,
+          })
+          .eq("id", existingAsset.dbId);
+
+        if (error) throw error;
+
+        await insertTransaction({
+          portfolioId: existingAsset.dbId,
+          crypto: selectedToken.id,
+          type: "purchase",
+          quantity,
+          unitPrice: buyPrice,
+          quantityBefore,
+          averagePriceBefore,
+          quantityAfter,
+          averagePriceAfter,
+        });
+
+        setMessage(
+          `${selectedToken.name} a été mis à jour avec le nouveau prix moyen.`
+        );
+      } else {
+        const { data, error } = await supabase
+          .from("portfolios")
+          .insert([
+            {
+              crypto: selectedToken.id,
+              quantite: quantity,
+              prix_achat: buyPrice,
+            },
+          ])
+          .select("id")
+          .single();
+
+        if (error) throw error;
+
+        await insertTransaction({
+          portfolioId: data.id,
+          crypto: selectedToken.id,
+          type: "purchase",
+          quantity,
+          unitPrice: buyPrice,
+          quantityBefore: 0,
+          averagePriceBefore: 0,
+          quantityAfter: quantity,
+          averagePriceAfter: buyPrice,
+        });
+
+        setMessage(`${selectedToken.name} a été ajouté au portefeuille.`);
       }
 
-      setMessage(`${selectedToken.name} a été ajouté au portefeuille.`);
+      resetForm();
+      await loadAssets();
+    } catch (error) {
+      console.error("Erreur ajout / mise à jour :", error);
+      setMessage(
+        `Enregistrement impossible : ${
+          error?.message || "erreur inconnue"
+        }`
+      );
+    } finally {
+      setIsAdding(false);
     }
-
-    resetForm();
-    await loadAssets();
-    setIsAdding(false);
   }
 
-  function openPurchaseForm(asset) {
+  function openTransactionForm(asset, type = "purchase") {
     setEditingAsset(asset);
-    setAdditionalPurchase({
-      quantity: "",
-      buyPrice: "",
-    });
+    setTransactionType(type);
+    setTransactionForm({ quantity: "", unitPrice: "" });
+    setTransactionMessage("");
     setMessage("");
   }
 
-  function closePurchaseForm() {
+  function closeTransactionForm() {
     setEditingAsset(null);
-    setAdditionalPurchase({
-      quantity: "",
-      buyPrice: "",
-    });
+    setTransactionType("purchase");
+    setTransactionForm({ quantity: "", unitPrice: "" });
+    setTransactionMessage("");
+    setIsSavingTransaction(false);
   }
 
-  async function addAdditionalPurchase() {
-    if (!editingAsset) {
-      return;
-    }
+  async function saveTransaction() {
+    if (!editingAsset || isSavingTransaction) return;
 
-    const newQuantity = Number(additionalPurchase.quantity);
-    const newBuyPrice = Number(additionalPurchase.buyPrice);
-
-    if (!newQuantity || newQuantity <= 0) {
-      setMessage("Entre une nouvelle quantité supérieure à zéro.");
-      return;
-    }
-
-    if (!newBuyPrice || newBuyPrice <= 0) {
-      setMessage("Entre le prix du nouvel achat.");
-      return;
-    }
-
-    const oldInvestment =
-      editingAsset.quantity * editingAsset.buyPrice;
-
-    const newInvestment = newQuantity * newBuyPrice;
-    const totalQuantity = editingAsset.quantity + newQuantity;
-
-    const weightedAveragePrice =
-      totalQuantity > 0
-        ? (oldInvestment + newInvestment) / totalQuantity
+    const quantity = Number(transactionForm.quantity);
+    const unitPrice =
+      transactionType === "purchase"
+        ? Number(transactionForm.unitPrice)
         : 0;
+    const quantityBefore = Number(editingAsset.quantity);
+    const averagePriceBefore = Number(editingAsset.buyPrice);
+    const portfolioId = editingAsset.dbId;
 
-    const { error } = await supabase
-      .from("portfolios")
-      .update({
-        quantite: totalQuantity,
-        prix_achat: weightedAveragePrice,
-      })
-      .eq("id", editingAsset.dbId);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      setTransactionMessage("Entre une quantité supérieure à zéro.");
+      return;
+    }
+
+    if (
+      transactionType === "purchase" &&
+      (!Number.isFinite(unitPrice) || unitPrice <= 0)
+    ) {
+      setTransactionMessage("Entre le prix du nouvel achat.");
+      return;
+    }
+
+    if (transactionType === "sale" && quantity > quantityBefore) {
+      setTransactionMessage(
+        `La quantité vendue ne peut pas dépasser ${formatNumber(
+          quantityBefore
+        )}.`
+      );
+      return;
+    }
+
+    setIsSavingTransaction(true);
+    setTransactionMessage("");
+
+    try {
+      if (transactionType === "purchase") {
+        const quantityAfter = quantityBefore + quantity;
+        const averagePriceAfter =
+          (quantityBefore * averagePriceBefore + quantity * unitPrice) /
+          quantityAfter;
+
+        const { error } = await supabase
+          .from("portfolios")
+          .update({
+            quantite: quantityAfter,
+            prix_achat: averagePriceAfter,
+          })
+          .eq("id", portfolioId);
+
+        if (error) throw error;
+
+        await insertTransaction({
+          portfolioId,
+          crypto: editingAsset.id,
+          type: "purchase",
+          quantity,
+          unitPrice,
+          quantityBefore,
+          averagePriceBefore,
+          quantityAfter,
+          averagePriceAfter,
+        });
+
+        setMessage(
+          `Nouvel achat enregistré pour ${editingAsset.name}. Prix moyen recalculé.`
+        );
+      } else {
+        const quantityAfter = quantityBefore - quantity;
+        const averagePriceAfter = quantityAfter > 0 ? averagePriceBefore : 0;
+
+        if (quantityAfter === 0) {
+          const confirmed = window.confirm(
+            `Cette vente clôture entièrement ${editingAsset.name}. La position et tout son historique seront supprimés. Continuer ?`
+          );
+
+          if (!confirmed) {
+            setIsSavingTransaction(false);
+            return;
+          }
+
+          const { error } = await supabase
+            .from("portfolios")
+            .delete()
+            .eq("id", portfolioId);
+
+          if (error) throw error;
+
+          setMessage(
+            `${editingAsset.name} a été entièrement vendu et retiré du portefeuille.`
+          );
+        } else {
+          const { error } = await supabase
+            .from("portfolios")
+            .update({ quantite: quantityAfter })
+            .eq("id", portfolioId);
+
+          if (error) throw error;
+
+          await insertTransaction({
+            portfolioId,
+            crypto: editingAsset.id,
+            type: "sale",
+            quantity,
+            unitPrice,
+            quantityBefore,
+            averagePriceBefore,
+            quantityAfter,
+            averagePriceAfter,
+          });
+
+          setMessage(
+            `Vente partielle enregistrée pour ${editingAsset.name}. Le prix moyen restant est inchangé.`
+          );
+        }
+      }
+
+      closeTransactionForm();
+      await loadAssets();
+    } catch (error) {
+      console.error("Erreur transaction :", error);
+      setTransactionMessage(
+        `Enregistrement impossible : ${
+          error?.message || "erreur inconnue"
+        }`
+      );
+    } finally {
+      setIsSavingTransaction(false);
+    }
+  }
+
+  async function openHistory(asset) {
+    setHistoryAsset(asset);
+    setHistoryItems([]);
+    setHistoryMessage("");
+    setIsLoadingHistory(true);
+
+    const { data, error } = await supabase
+      .from("portfolio_transactions")
+      .select("*")
+      .eq("portfolio_id", asset.dbId)
+      .order("created_at", { ascending: false });
 
     if (error) {
-      console.error("Erreur nouvel achat :", error);
-      setMessage("Impossible d’enregistrer le nouvel achat.");
-      return;
+      console.error("Erreur historique :", error);
+      setHistoryMessage(
+        `Impossible de charger l’historique : ${error.message}`
+      );
+    } else {
+      setHistoryItems(data || []);
     }
 
-    setMessage(
-      `Nouvel achat enregistré pour ${editingAsset.name}. Prix moyen recalculé.`
+    setIsLoadingHistory(false);
+  }
+
+  function closeHistory() {
+    setHistoryAsset(null);
+    setHistoryItems([]);
+    setHistoryMessage("");
+    setUndoingTransactionId(null);
+  }
+
+  async function undoTransaction(transaction) {
+    if (!historyAsset || undoingTransactionId) return;
+
+    const confirmed = window.confirm(
+      `Annuler cette ${
+        transaction.type === "purchase" ? "transaction d’achat" : "vente"
+      } ? La position reviendra exactement à son état précédent.`
     );
 
-    closePurchaseForm();
-    await loadAssets();
+    if (!confirmed) return;
+
+    setUndoingTransactionId(transaction.id);
+    setHistoryMessage("");
+
+    try {
+      const quantityBefore = Number(transaction.quantity_before || 0);
+      const averagePriceBefore = Number(
+        transaction.average_price_before || 0
+      );
+
+      if (quantityBefore <= 0) {
+        const { error } = await supabase
+          .from("portfolios")
+          .delete()
+          .eq("id", historyAsset.dbId);
+
+        if (error) throw error;
+        closeHistory();
+        setMessage(
+          `${historyAsset.name} a été retiré : son achat initial a été annulé.`
+        );
+      } else {
+        const { error: updateError } = await supabase
+          .from("portfolios")
+          .update({
+            quantite: quantityBefore,
+            prix_achat: averagePriceBefore,
+          })
+          .eq("id", historyAsset.dbId);
+
+        if (updateError) throw updateError;
+
+        const { error: deleteError } = await supabase
+          .from("portfolio_transactions")
+          .delete()
+          .eq("id", transaction.id);
+
+        if (deleteError) throw deleteError;
+
+        setHistoryItems((items) =>
+          items.filter((item) => item.id !== transaction.id)
+        );
+        setMessage("Transaction annulée. La position a été restaurée.");
+      }
+
+      await loadAssets();
+    } catch (error) {
+      console.error("Erreur annulation transaction :", error);
+      setHistoryMessage(
+        `Annulation impossible : ${error?.message || "erreur inconnue"}`
+      );
+    } finally {
+      setUndoingTransactionId(null);
+    }
   }
 
   async function deleteAsset(asset) {
@@ -772,7 +1014,7 @@ export default function App() {
                               ?.slice(0, 1)
                               .toUpperCase()}
                           </div>
-                        , true)}
+                        )}
 
                         <div>
                           <h3 style={styles.cardTitle}>
@@ -895,11 +1137,25 @@ export default function App() {
                       <button
                         type="button"
                         style={styles.editButton}
-                        onClick={() =>
-                          openPurchaseForm(asset)
-                        }
+                        onClick={() => openTransactionForm(asset, "purchase")}
                       >
-                        Modifier / Nouvel achat
+                        Acheter
+                      </button>
+
+                      <button
+                        type="button"
+                        style={styles.sellButton}
+                        onClick={() => openTransactionForm(asset, "sale")}
+                      >
+                        Vendre
+                      </button>
+
+                      <button
+                        type="button"
+                        style={styles.historyButton}
+                        onClick={() => openHistory(asset)}
+                      >
+                        Historique
                       </button>
 
                       <button
@@ -1033,129 +1289,306 @@ export default function App() {
                 <p style={styles.modalEyebrow}>
                   Nouvelle transaction
                 </p>
-
-                <h2 style={styles.modalTitle}>
-                  {editingAsset.name}
-                </h2>
+                <h2 style={styles.modalTitle}>{editingAsset.name}</h2>
               </div>
-
               <button
                 type="button"
                 style={styles.closeButton}
-                onClick={closePurchaseForm}
+                onClick={closeTransactionForm}
               >
                 ×
               </button>
             </div>
 
+            <div style={styles.transactionTabs}>
+              <button
+                type="button"
+                style={{
+                  ...styles.transactionTab,
+                  ...(transactionType === "purchase"
+                    ? styles.transactionTabActive
+                    : {}),
+                }}
+                onClick={() => {
+                  setTransactionType("purchase");
+                  setTransactionMessage("");
+                }}
+              >
+                Achat
+              </button>
+              <button
+                type="button"
+                style={{
+                  ...styles.transactionTab,
+                  ...(transactionType === "sale"
+                    ? styles.transactionTabSaleActive
+                    : {}),
+                }}
+                onClick={() => {
+                  setTransactionType("sale");
+                  setTransactionMessage("");
+                }}
+              >
+                Vente
+              </button>
+            </div>
+
             <div style={styles.currentPositionBox}>
               <div style={styles.line}>
-                <span style={styles.lineLabel}>
-                  Quantité actuelle
-                </span>
-
+                <span style={styles.lineLabel}>Quantité actuelle</span>
                 <strong style={styles.lineValue}>
                   {formatNumber(editingAsset.quantity)}
                 </strong>
               </div>
-
               <div style={styles.line}>
-                <span style={styles.lineLabel}>
-                  Prix moyen actuel
-                </span>
-
+                <span style={styles.lineLabel}>Prix moyen actuel</span>
                 <strong style={styles.lineValue}>
-                  {formatUSD(editingAsset.buyPrice)}
+                  {formatUSD(editingAsset.buyPrice, true)}
                 </strong>
               </div>
             </div>
 
+            {transactionType === "sale" && (
+              <div style={styles.saleInformationBox}>
+                Indique uniquement la quantité vendue. Le prix moyen des
+                tokens restants restera inchangé.
+              </div>
+            )}
+
             <div style={styles.modalFields}>
               <div>
                 <label style={styles.label}>
-                  Quantité supplémentaire
+                  {transactionType === "purchase"
+                    ? "Quantité achetée"
+                    : "Quantité vendue"}
                 </label>
-
                 <input
                   style={styles.input}
                   type="number"
                   min="0"
+                  max={
+                    transactionType === "sale"
+                      ? editingAsset.quantity
+                      : undefined
+                  }
                   step="any"
-                  placeholder="Nouvelle quantité"
-                  value={additionalPurchase.quantity}
+                  placeholder="Quantité"
+                  value={transactionForm.quantity}
                   onChange={(event) =>
-                    setAdditionalPurchase({
-                      ...additionalPurchase,
+                    setTransactionForm({
+                      ...transactionForm,
                       quantity: event.target.value,
                     })
                   }
                 />
               </div>
 
-              <div>
-                <label style={styles.label}>
-                  Prix du nouvel achat
-                </label>
-
-                <input
-                  style={styles.input}
-                  type="number"
-                  min="0"
-                  step="any"
-                  placeholder="Prix unitaire en USD"
-                  value={additionalPurchase.buyPrice}
-                  onChange={(event) =>
-                    setAdditionalPurchase({
-                      ...additionalPurchase,
-                      buyPrice: event.target.value,
-                    })
-                  }
-                />
-              </div>
-            </div>
-
-            {Number(additionalPurchase.quantity) > 0 &&
-              Number(additionalPurchase.buyPrice) > 0 && (
-                <div style={styles.previewBox}>
-                  <span style={styles.previewLabel}>
-                    Nouveau prix moyen estimé
-                  </span>
-
-                  <strong style={styles.previewValue}>
-                    {formatUSD((editingAsset.quantity *
-                        editingAsset.buyPrice +
-                        Number(
-                          additionalPurchase.quantity
-                        ) *
-                          Number(
-                            additionalPurchase.buyPrice
-                          )) /
-                        (editingAsset.quantity +
-                          Number(
-                            additionalPurchase.quantity
-                          ))
-                    )}
-                  </strong>
+              {transactionType === "purchase" && (
+                <div>
+                  <label style={styles.label}>
+                    Prix du nouvel achat
+                  </label>
+                  <input
+                    style={styles.input}
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="Prix unitaire en USD"
+                    value={transactionForm.unitPrice}
+                    onChange={(event) =>
+                      setTransactionForm({
+                        ...transactionForm,
+                        unitPrice: event.target.value,
+                      })
+                    }
+                  />
                 </div>
               )}
+            </div>
+
+            {Number(transactionForm.quantity) > 0 &&
+              (transactionType === "sale" ||
+                Number(transactionForm.unitPrice) > 0) && (
+                <div style={styles.previewBox}>
+                  <span style={styles.previewLabel}>
+                    {transactionType === "purchase"
+                      ? "Nouveau prix moyen estimé"
+                      : "Quantité restante après la vente"}
+                  </span>
+                  <strong style={styles.previewValue}>
+                    {transactionType === "purchase"
+                      ? formatUSD(
+                          (editingAsset.quantity * editingAsset.buyPrice +
+                            Number(transactionForm.quantity) *
+                              Number(transactionForm.unitPrice)) /
+                            (editingAsset.quantity +
+                              Number(transactionForm.quantity)),
+                          true
+                        )
+                      : formatNumber(
+                          Math.max(
+                            0,
+                            editingAsset.quantity -
+                              Number(transactionForm.quantity)
+                          )
+                        )}
+                  </strong>
+                  {transactionType === "sale" && (
+                    <span style={styles.previewHint}>
+                      Le prix moyen d’achat restant demeure inchangé.
+                    </span>
+                  )}
+                </div>
+              )}
+
+            {transactionMessage && (
+              <div style={styles.purchaseMessage}>
+                {transactionMessage}
+              </div>
+            )}
 
             <div style={styles.modalActions}>
               <button
                 type="button"
                 style={styles.cancelButton}
-                onClick={closePurchaseForm}
+                onClick={closeTransactionForm}
               >
-                Annuler
+                Fermer
               </button>
-
               <button
                 type="button"
-                style={styles.confirmButton}
-                onClick={addAdditionalPurchase}
+                style={{
+                  ...styles.confirmButton,
+                  ...(transactionType === "sale"
+                    ? styles.confirmSaleButton
+                    : {}),
+                  opacity: isSavingTransaction ? 0.65 : 1,
+                  cursor: isSavingTransaction ? "wait" : "pointer",
+                }}
+                disabled={isSavingTransaction}
+                onClick={saveTransaction}
               >
-                Enregistrer l’achat
+                {isSavingTransaction
+                  ? "Enregistrement..."
+                  : transactionType === "purchase"
+                  ? "Enregistrer l’achat"
+                  : "Enregistrer la vente"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {historyAsset && (
+        <div style={styles.modalOverlay}>
+          <div style={{ ...styles.modal, maxWidth: 720 }}>
+            <div style={styles.modalHeader}>
+              <div>
+                <p style={styles.modalEyebrow}>Historique détaillé</p>
+                <h2 style={styles.modalTitle}>{historyAsset.name}</h2>
+              </div>
+              <button
+                type="button"
+                style={styles.closeButton}
+                onClick={closeHistory}
+              >
+                ×
+              </button>
+            </div>
+
+            {isLoadingHistory ? (
+              <div style={styles.historyEmpty}>Chargement...</div>
+            ) : historyItems.length === 0 ? (
+              <div style={styles.historyEmpty}>
+                Aucun historique détaillé. Les positions créées avant cette
+                mise à jour ne disposent pas encore de transactions
+                individuelles.
+              </div>
+            ) : (
+              <div style={styles.historyList}>
+                {historyItems.map((transaction, index) => {
+                  const canUndo = index === 0;
+                  const isPurchase = transaction.type === "purchase";
+                  return (
+                    <div key={transaction.id} style={styles.historyItem}>
+                      <div style={styles.historyTopRow}>
+                        <span
+                          style={{
+                            ...styles.historyType,
+                            color: isPurchase ? "#86efac" : "#fda4af",
+                            background: isPurchase
+                              ? "rgba(34,197,94,.10)"
+                              : "rgba(244,63,94,.10)",
+                          }}
+                        >
+                          {isPurchase ? "Achat" : "Vente"}
+                        </span>
+                        <span style={styles.historyDate}>
+                          {new Intl.DateTimeFormat("fr-FR", {
+                            dateStyle: "medium",
+                            timeStyle: "short",
+                          }).format(new Date(transaction.created_at))}
+                        </span>
+                      </div>
+
+                      <div style={styles.historyDetails}>
+                        <span>
+                          Quantité : <strong>{formatNumber(transaction.quantity)}</strong>
+                        </span>
+                        {transaction.type === "purchase" && (
+                          <span>
+                            Prix d’achat :{" "}
+                            <strong>
+                              {formatUSD(transaction.unit_price, true)}
+                            </strong>
+                          </span>
+                        )}
+                        <span>
+                          Position : <strong>{formatNumber(transaction.quantity_before)}</strong> → <strong>{formatNumber(transaction.quantity_after)}</strong>
+                        </span>
+                        <span>
+                          {transaction.type === "purchase"
+                            ? "Prix moyen après : "
+                            : "Prix moyen restant : "}
+                          <strong>
+                            {formatUSD(
+                              transaction.average_price_after,
+                              true
+                            )}
+                          </strong>
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        style={{
+                          ...styles.undoButton,
+                          opacity: canUndo ? 1 : 0.45,
+                          cursor: canUndo ? "pointer" : "not-allowed",
+                        }}
+                        disabled={!canUndo || undoingTransactionId === transaction.id}
+                        onClick={() => undoTransaction(transaction)}
+                        title={
+                          canUndo
+                            ? "Annuler la dernière transaction"
+                            : "Seule la transaction la plus récente peut être annulée"
+                        }
+                      >
+                        {undoingTransactionId === transaction.id
+                          ? "Annulation..."
+                          : canUndo
+                          ? "Annuler cette transaction"
+                          : "Transaction verrouillée"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {historyMessage && (
+              <div style={styles.purchaseMessage}>{historyMessage}</div>
+            )}
           </div>
         </div>
       )}
@@ -1303,8 +1736,10 @@ const styles = {
   profitBox: { display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 14, marginTop: 17, paddingTop: 16, borderTop: "1px solid rgba(78,91,83,.5)" },
   profitLabel: { display: "block", marginBottom: 5, color: "#8e9891", fontSize: 12 },
   profitValue: { display: "block", fontSize: 20 }, performance: { fontSize: 17 },
-  cardActions: { display: "grid", gridTemplateColumns: "1fr auto", gap: 9, marginTop: 17 },
+  cardActions: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 9, marginTop: 17 },
   editButton: { padding: "12px 13px", border: "1px solid rgba(87,199,63,.58)", borderRadius: 10, background: "rgba(38,117,53,.15)", color: "#81dc6d", fontWeight: 800, cursor: "pointer" },
+  sellButton: { padding: "12px 13px", border: "1px solid rgba(251,113,133,.48)", borderRadius: 10, background: "rgba(190,24,93,.10)", color: "#fda4af", fontWeight: 800, cursor: "pointer" },
+  historyButton: { padding: "12px 13px", border: "1px solid rgba(213,167,75,.45)", borderRadius: 10, background: "rgba(146,102,24,.10)", color: "#efd08a", fontWeight: 800, cursor: "pointer" },
   deleteButton: { padding: "12px 13px", border: "1px solid rgba(239,68,68,.4)", borderRadius: 10, background: "rgba(239,68,68,.09)", color: "#fda4af", fontWeight: 800, cursor: "pointer" },
   emptyState: { padding: "50px 20px", border: "1px dashed rgba(87,104,94,.62)", borderRadius: 18, background: "rgba(4,18,14,.55)", textAlign: "center" },
   emptyIcon: { width: 58, height: 58, display: "grid", placeItems: "center", margin: "0 auto 14px", borderRadius: "50%", background: "#10271d", color: "#dba93e", fontSize: 28, fontWeight: 900 },
@@ -1326,11 +1761,26 @@ const styles = {
   modalEyebrow: { margin: "0 0 4px", color: "#59c941", fontSize: 11, fontWeight: 900, letterSpacing: 1.2, textTransform: "uppercase" },
   modalTitle: { margin: 0, fontSize: 25, color: "#efd08a" },
   closeButton: { width: 38, height: 38, border: "1px solid rgba(82,99,89,.58)", borderRadius: 10, background: "#0c2218", color: "#f8faf8", fontSize: 25, lineHeight: 1, cursor: "pointer" },
+  transactionTabs: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 },
+  transactionTab: { padding: "11px 14px", border: "1px solid rgba(78,91,83,.55)", borderRadius: 10, background: "#071813", color: "#9aa49d", fontWeight: 900, cursor: "pointer" },
+  transactionTabActive: { borderColor: "rgba(74,222,128,.60)", background: "rgba(34,197,94,.13)", color: "#86efac" },
+  transactionTabSaleActive: { borderColor: "rgba(251,113,133,.60)", background: "rgba(244,63,94,.12)", color: "#fda4af" },
   currentPositionBox: { display: "flex", flexDirection: "column", gap: 10, padding: 14, border: "1px solid rgba(77,91,82,.5)", borderRadius: 12, background: "#061712" },
+  saleInformationBox: { marginTop: 17, padding: "12px 14px", border: "1px solid rgba(251,113,133,.32)", borderRadius: 12, background: "rgba(190,24,93,.07)", color: "#fecdd3", fontSize: 13, fontWeight: 700, lineHeight: 1.5 },
   modalFields: { display: "grid", gap: 14, marginTop: 17 },
   previewBox: { display: "flex", flexDirection: "column", gap: 5, marginTop: 17, padding: 14, border: "1px solid rgba(74,222,128,.4)", borderRadius: 12, background: "rgba(34,197,94,.08)" },
-  previewLabel: { color: "#86efac", fontSize: 12, fontWeight: 700 }, previewValue: { color: "#4ade80", fontSize: 22 },
+  previewLabel: { color: "#86efac", fontSize: 12, fontWeight: 700 }, previewValue: { color: "#4ade80", fontSize: 22 }, previewHint: { color: "#9aa49d", fontSize: 12, lineHeight: 1.45 },
+  purchaseMessage: { marginTop: 16, padding: "12px 14px", border: "1px solid rgba(251,113,133,.45)", borderRadius: 11, background: "rgba(190,24,93,.10)", color: "#fecdd3", fontSize: 13, fontWeight: 700, lineHeight: 1.45 },
   modalActions: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 20 },
   cancelButton: { padding: "14px 16px", border: "1px solid rgba(80,97,87,.58)", borderRadius: 11, background: "#0c2218", color: "#dce4de", fontWeight: 800, cursor: "pointer" },
   confirmButton: { padding: "14px 16px", border: "none", borderRadius: 11, background: "linear-gradient(180deg,#51d53c,#1d9d23)", color: "#031006", fontWeight: 900, cursor: "pointer" },
+  confirmSaleButton: { background: "linear-gradient(180deg,#fb7185,#be123c)", color: "#fff1f2" },
+  historyList: { display: "flex", flexDirection: "column", gap: 12 },
+  historyItem: { padding: 15, border: "1px solid rgba(77,91,82,.52)", borderRadius: 13, background: "#061712" },
+  historyTopRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 },
+  historyType: { padding: "6px 9px", borderRadius: 999, fontSize: 12, fontWeight: 900 },
+  historyDate: { color: "#89938c", fontSize: 12, textAlign: "right" },
+  historyDetails: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8, color: "#aeb6b0", fontSize: 13, lineHeight: 1.45 },
+  historyEmpty: { padding: "28px 18px", border: "1px dashed rgba(77,91,82,.62)", borderRadius: 13, color: "#9aa49d", textAlign: "center", lineHeight: 1.6 },
+  undoButton: { width: "100%", marginTop: 13, padding: "10px 12px", border: "1px solid rgba(251,191,36,.42)", borderRadius: 9, background: "rgba(180,113,10,.10)", color: "#f5d58d", fontWeight: 800 },
 };
