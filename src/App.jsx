@@ -999,17 +999,19 @@ export default function App() {
                   <article
                     key={asset.dbId}
                     style={styles.cryptoCard}
+                    className="ld-crypto-card"
                   >
-                    <div style={styles.cardHeader}>
-                      <div style={styles.tokenIdentity}>
+                    <div style={styles.cardHeader} className="ld-card-header">
+                      <div style={styles.tokenIdentity} className="ld-token-identity">
                         {asset.image ? (
                           <img
                             src={asset.image}
                             alt=""
                             style={styles.tokenLogo}
+                            className="ld-token-logo"
                           />
                         ) : (
-                          <div style={styles.logoPlaceholder}>
+                          <div style={styles.logoPlaceholder} className="ld-token-logo ld-token-placeholder">
                             {asset.name
                               ?.slice(0, 1)
                               .toUpperCase()}
@@ -1017,17 +1019,18 @@ export default function App() {
                         )}
 
                         <div>
-                          <h3 style={styles.cardTitle}>
+                          <h3 style={styles.cardTitle} className="ld-card-title">
                             {asset.name}
                           </h3>
 
-                          <span style={styles.cardSymbol}>
+                          <span style={styles.cardSymbol} className="ld-card-symbol">
                             {asset.symbol || asset.id}
                           </span>
                         </div>
                       </div>
 
                       <div
+                        className="ld-change-badge"
                         style={{
                           ...styles.changeBadge,
                           color:
@@ -1047,65 +1050,66 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div style={styles.priceBlock}>
-                      <span style={styles.priceLabel}>
+                    <div style={styles.priceBlock} className="ld-price-block">
+                      <span style={styles.priceLabel} className="ld-price-label">
                         Prix actuel
                       </span>
 
-                      <strong style={styles.currentPrice}>
+                      <strong style={styles.currentPrice} className="ld-current-price">
                         {formatUSD(asset.currentPrice, true)}
                       </strong>
                     </div>
 
-                    <div style={styles.dataRows}>
-                      <div style={styles.line}>
-                        <span style={styles.lineLabel}>
+                    <div style={styles.dataRows} className="ld-data-rows">
+                      <div style={styles.line} className="ld-data-line">
+                        <span style={styles.lineLabel} className="ld-line-label">
                           Quantité
                         </span>
 
-                        <strong style={styles.lineValue}>
+                        <strong style={styles.lineValue} className="ld-line-value">
                           {formatNumber(asset.quantity)}
                         </strong>
                       </div>
 
-                      <div style={styles.line}>
-                        <span style={styles.lineLabel}>
+                      <div style={styles.line} className="ld-data-line">
+                        <span style={styles.lineLabel} className="ld-line-label">
                           Prix moyen
                         </span>
 
-                        <strong style={styles.lineValue}>
+                        <strong style={styles.lineValue} className="ld-line-value">
                           {formatUSD(asset.buyPrice, true)}
                         </strong>
                       </div>
 
-                      <div style={styles.line}>
-                        <span style={styles.lineLabel}>
+                      <div style={styles.line} className="ld-data-line">
+                        <span style={styles.lineLabel} className="ld-line-label">
                           Montant investi
                         </span>
 
-                        <strong style={styles.lineValue}>
+                        <strong style={styles.lineValue} className="ld-line-value">
                           {formatUSD(investedValue)}
                         </strong>
                       </div>
 
-                      <div style={styles.line}>
-                        <span style={styles.lineLabel}>
+                      <div style={styles.line} className="ld-data-line">
+                        <span style={styles.lineLabel} className="ld-line-label">
                           Valeur actuelle
                         </span>
 
-                        <strong style={styles.lineValue}>
+                        <strong style={styles.lineValue} className="ld-line-value">
                           {formatUSD(currentValue)}
                         </strong>
                       </div>
                     </div>
 
-                    <div style={styles.profitBox}>
+                    <div style={styles.profitBox} className="ld-profit-box">
                       <div>
-                        <span style={styles.profitLabel}>
+                        <span style={styles.profitLabel} className="ld-profit-label">
                           Résultat
                         </span>
 
                         <strong
+                          className="ld-profit-value"
                           style={{
                             ...styles.profitValue,
                             color:
@@ -1120,6 +1124,7 @@ export default function App() {
                       </div>
 
                       <strong
+                        className="ld-card-performance"
                         style={{
                           ...styles.performance,
                           color:
@@ -1133,10 +1138,11 @@ export default function App() {
                       </strong>
                     </div>
 
-                    <div style={styles.cardActions}>
+                    <div style={styles.cardActions} className="ld-card-actions">
                       <button
                         type="button"
                         style={styles.editButton}
+                        className="ld-card-action ld-card-action--buy"
                         onClick={() => openTransactionForm(asset, "purchase")}
                       >
                         Acheter
@@ -1145,6 +1151,7 @@ export default function App() {
                       <button
                         type="button"
                         style={styles.sellButton}
+                        className="ld-card-action ld-card-action--sell"
                         onClick={() => openTransactionForm(asset, "sale")}
                       >
                         Vendre
@@ -1153,6 +1160,7 @@ export default function App() {
                       <button
                         type="button"
                         style={styles.historyButton}
+                        className="ld-card-action ld-card-action--history"
                         onClick={() => openHistory(asset)}
                       >
                         Historique
@@ -1161,6 +1169,7 @@ export default function App() {
                       <button
                         type="button"
                         style={styles.deleteButton}
+                        className="ld-card-action ld-card-action--delete"
                         onClick={() => deleteAsset(asset)}
                       >
                         Supprimer
@@ -1614,12 +1623,114 @@ const responsiveCss = `
     .ld-add-section { padding: 18px 14px !important; }
     .ld-form-grid { grid-template-columns: 1fr !important; }
     .ld-card-grid, .ld-summary-grid { grid-template-columns: 1fr !important; }
+
+    /* Cartes de positions : gabarit mobile compact et sans débordement. */
+    .ld-card-grid {
+      width: 100% !important;
+      min-width: 0 !important;
+      gap: 12px !important;
+    }
+    .ld-crypto-card {
+      width: 100% !important;
+      max-width: 100% !important;
+      min-width: 0 !important;
+      padding: 14px !important;
+      border-radius: 16px !important;
+      overflow: hidden !important;
+    }
+    .ld-card-header {
+      align-items: center !important;
+      gap: 8px !important;
+      min-width: 0 !important;
+    }
+    .ld-token-identity {
+      flex: 1 1 auto !important;
+      min-width: 0 !important;
+      gap: 9px !important;
+    }
+    .ld-token-logo {
+      width: 40px !important;
+      height: 40px !important;
+      flex: 0 0 40px !important;
+    }
+    .ld-card-title {
+      max-width: 100% !important;
+      font-size: 17px !important;
+      line-height: 1.15 !important;
+    }
+    .ld-card-symbol {
+      margin-top: 2px !important;
+      font-size: 10px !important;
+    }
+    .ld-change-badge {
+      padding: 6px 7px !important;
+      font-size: 11px !important;
+      white-space: nowrap !important;
+    }
+    .ld-price-block {
+      margin: 13px 0 !important;
+      gap: 3px !important;
+    }
+    .ld-price-label, .ld-profit-label {
+      font-size: 11px !important;
+    }
+    .ld-current-price {
+      font-size: 22px !important;
+      line-height: 1.15 !important;
+      overflow-wrap: anywhere !important;
+    }
+    .ld-data-rows { gap: 7px !important; }
+    .ld-data-line {
+      gap: 8px !important;
+      min-width: 0 !important;
+    }
+    .ld-line-label {
+      flex: 1 1 auto !important;
+      min-width: 0 !important;
+      font-size: 12px !important;
+    }
+    .ld-line-value {
+      flex: 0 1 58% !important;
+      min-width: 0 !important;
+      font-size: 12px !important;
+      overflow-wrap: anywhere !important;
+    }
+    .ld-profit-box {
+      align-items: center !important;
+      gap: 10px !important;
+      margin-top: 13px !important;
+      padding-top: 12px !important;
+    }
+    .ld-profit-value {
+      font-size: 17px !important;
+      overflow-wrap: anywhere !important;
+    }
+    .ld-card-performance {
+      flex-shrink: 0 !important;
+      font-size: 15px !important;
+      white-space: nowrap !important;
+    }
+    .ld-card-actions {
+      grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+      gap: 7px !important;
+      margin-top: 12px !important;
+    }
+    .ld-card-action {
+      width: 100% !important;
+      min-width: 0 !important;
+      padding: 10px 5px !important;
+      font-size: 12px !important;
+      line-height: 1.15 !important;
+      white-space: nowrap !important;
+    }
   }
   @media (max-width: 500px) {
     .ld-header { align-items: flex-start !important; }
     .ld-header > div:last-child { width: 82px !important; height: 82px !important; border-radius: 18px !important; }
     .ld-header h1 { font-size: 36px !important; }
     .ld-header p:first-child { font-size: 11px !important; }
+    .ld-crypto-card { padding: 12px !important; }
+    .ld-card-action { font-size: 11px !important; padding-inline: 3px !important; }
   }
 `;
 
