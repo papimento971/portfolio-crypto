@@ -1634,19 +1634,19 @@ const responsiveCss = `
       width: 100% !important;
       max-width: 100% !important;
       min-width: 0 !important;
-      padding: 14px !important;
+      padding: 12px !important;
       border-radius: 16px !important;
       overflow: hidden !important;
     }
     .ld-card-header {
       align-items: center !important;
-      gap: 8px !important;
+      gap: 6px !important;
       min-width: 0 !important;
     }
     .ld-token-identity {
       flex: 1 1 auto !important;
       min-width: 0 !important;
-      gap: 9px !important;
+      gap: 8px !important;
     }
     .ld-token-logo {
       width: 40px !important;
@@ -1668,8 +1668,8 @@ const responsiveCss = `
       white-space: nowrap !important;
     }
     .ld-price-block {
-      margin: 13px 0 !important;
-      gap: 3px !important;
+      margin: 8px 0 9px !important;
+      gap: 2px !important;
     }
     .ld-price-label, .ld-profit-label {
       font-size: 11px !important;
@@ -1679,9 +1679,9 @@ const responsiveCss = `
       line-height: 1.15 !important;
       overflow-wrap: anywhere !important;
     }
-    .ld-data-rows { gap: 7px !important; }
+    .ld-data-rows { gap: 4px !important; }
     .ld-data-line {
-      gap: 8px !important;
+      gap: 6px !important;
       min-width: 0 !important;
     }
     .ld-line-label {
@@ -1697,9 +1697,9 @@ const responsiveCss = `
     }
     .ld-profit-box {
       align-items: center !important;
-      gap: 10px !important;
-      margin-top: 13px !important;
-      padding-top: 12px !important;
+      gap: 8px !important;
+      margin-top: 8px !important;
+      padding-top: 8px !important;
     }
     .ld-profit-value {
       font-size: 17px !important;
@@ -1712,13 +1712,13 @@ const responsiveCss = `
     }
     .ld-card-actions {
       grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-      gap: 7px !important;
-      margin-top: 12px !important;
+      gap: 6px !important;
+      margin-top: 8px !important;
     }
     .ld-card-action {
       width: 100% !important;
       min-width: 0 !important;
-      padding: 10px 5px !important;
+      padding: 8px 5px !important;
       font-size: 12px !important;
       line-height: 1.15 !important;
       white-space: nowrap !important;
@@ -1729,8 +1729,8 @@ const responsiveCss = `
     .ld-header > div:last-child { width: 82px !important; height: 82px !important; border-radius: 18px !important; }
     .ld-header h1 { font-size: 36px !important; }
     .ld-header p:first-child { font-size: 11px !important; }
-    .ld-crypto-card { padding: 12px !important; }
-    .ld-card-action { font-size: 11px !important; padding-inline: 3px !important; }
+    .ld-crypto-card { padding: 11px !important; }
+    .ld-card-action { font-size: 12px !important; padding-inline: 4px !important; }
   }
 `;
 
