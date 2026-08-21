@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabase";
 import ldLogo from "./assets/ld-logo.png";
 
+const TEST_MODE_ENABLED = false;
+
 export default function App() {
   const [assets, setAssets] = useState([]);
 
@@ -12,9 +14,12 @@ export default function App() {
   });
 
   const [selectedToken, setSelectedToken] = useState(null);
+ const [selectedNetworkOption, setSelectedNetworkOption] = useState(null);
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
+  const [isTestPosition, setIsTestPosition] = useState(false);
+  
 
   const [editingAsset, setEditingAsset] = useState(null);
   const [transactionType, setTransactionType] = useState("purchase");
@@ -31,7 +36,10 @@ export default function App() {
   const [historyMessage, setHistoryMessage] = useState("");
   const [undoingTransactionId, setUndoingTransactionId] = useState(null);
 
-  const [usdToEur, setUsdToEur] = useState(0.92);
+ const [usdToEur, setUsdToEur] = useState(0.92); 
+  const [realizedGainUSD, setRealizedGainUSD] = useState(0);
+const [realizedGainDetails, setRealizedGainDetails] = useState([]);
+const [showRealizedDetails, setShowRealizedDetails] = useState(false);
   const [message, setMessage] = useState("");
 
   const [showAmounts, setShowAmounts] = useState(() => {
@@ -46,107 +54,274 @@ export default function App() {
     );
   }, [showAmounts]);
 
-  useEffect(() => {
-    loadAssets();
-  }, []);
+ useEffect(() => {
+  loadAssets();
+  loadRealizedGains();
+}, []);
 
-  async function loadAssets() {
-    const { data, error } = await supabase
-      .from("portfolios")
-      .select("*")
-      .order("id");
+ async function loadAssets() {
+  const { data, error } = await supabase
+    .from("portfolios")
+    .select("*")
+    .order("id");
 
-    if (error) {
-      console.error("Erreur chargement :", error);
-      setMessage("Impossible de charger le portefeuille.");
-      return;
-    }
-
-    const formattedAssets = data.map((item) => ({
-      dbId: item.id,
-      id: item.crypto,
-      name: item.crypto,
-      symbol: "",
-      image: "",
-      quantity: Number(item.quantite || 0),
-      buyPrice: Number(item.prix_achat || 0),
-      currentPrice: 0,
-      priceChange24h: 0,
-    }));
-
-    setAssets(formattedAssets);
+  if (error) {
+    console.error("Erreur chargement :", error);
+    setMessage("Impossible de charger le portefeuille.");
+    return;
   }
 
-  useEffect(() => {
-    const searchText = form.search.trim();
+  setAssets((previousAssets) =>
+    data.map((item) => {
+      const existingAsset = previousAssets.find(
+        (asset) =>
+          asset.dbId === item.id ||
+          asset.id === item.crypto
+      );
 
-    if (selectedToken && searchText === selectedToken.name) {
-      setSearchResults([]);
-      return;
-    }
+      return {
+        dbId: item.id,
+        id: item.crypto,
+        name: existingAsset?.name || item.crypto,
+        symbol: existingAsset?.symbol || "",
+        image: existingAsset?.image || "",
+        quantity: Number(item.quantite || 0),
+        buyPrice: Number(item.prix_achat || 0),
+        isTest: Boolean(item.is_test),
+        currentPrice: existingAsset?.currentPrice || 0,
+        priceChange24h: existingAsset?.priceChange24h || 0,
+      };
+    })
+  );
+}
+async function loadAssets() {
+  const { data, error } = await supabase
+    .from("portfolios")
+    .select("*")
+    .order("id");
 
-    if (searchText.length < 2) {
-      setSearchResults([]);
-      setIsSearching(false);
-      return;
-    }
+  if (error) {
+    console.error("Erreur chargement :", error);
+    setMessage("Impossible de charger le portefeuille.");
+    return;
+  }
 
-    const timeout = setTimeout(async () => {
-      setIsSearching(true);
+  setAssets((previousAssets) =>
+    data.map((item) => {
+      const existingAsset = previousAssets.find(
+        (asset) =>
+          asset.dbId === item.id ||
+          asset.id === item.crypto
+      );
 
-      try {
-        const response = await fetch(
-          `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(
-            searchText
-          )}`
+      return {
+        dbId: item.id,
+        id: item.crypto,
+        name: existingAsset?.name || item.crypto,
+        symbol: existingAsset?.symbol || "",
+        image: existingAsset?.image || "",
+        quantity: Number(item.quantite || 0),
+        buyPrice: Number(item.prix_achat || 0),
+        isTest: Boolean(item.is_test),
+
+        network: item.network || null,
+        contractAddress: item.contract_address || null,
+        tokenType: item.token_type || null,
+
+        currentPrice: existingAsset?.currentPrice || 0,
+        priceChange24h: existingAsset?.priceChange24h || 0,
+      };
+    })
+  );
+}
+async function loadRealizedGains() {
+  const { data, error } = await supabase
+    .from("portfolio_transactions")
+    .select(
+      "id, crypto, quantity, unit_price, average_price_before, created_at"
+    )
+    .eq("type", "sale")
+    .eq("is_test", false)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Erreur chargement gains réalisés :", error);
+    return;
+  }
+
+  const sales = data || [];
+
+  const totalGain = sales.reduce((total, transaction) => {
+    const quantity = Number(transaction.quantity || 0);
+    const salePrice = Number(transaction.unit_price || 0);
+    const averagePriceBefore = Number(
+      transaction.average_price_before || 0
+    );
+
+    return total + (salePrice - averagePriceBefore) * quantity;
+  }, 0);
+
+  const detailsMap = new Map();
+
+  sales.forEach((transaction) => {
+    const quantity = Number(transaction.quantity || 0);
+    const salePrice = Number(transaction.unit_price || 0);
+    const averagePriceBefore = Number(
+      transaction.average_price_before || 0
+    );
+
+    const gain =
+      (salePrice - averagePriceBefore) * quantity;
+
+    const existing = detailsMap.get(transaction.crypto) || {
+      crypto: transaction.crypto,
+      gain: 0,
+      salesCount: 0,
+    };
+
+    existing.gain += gain;
+    existing.salesCount += 1;
+
+    detailsMap.set(transaction.crypto, existing);
+  });
+
+  setRealizedGainUSD(totalGain);
+
+  setRealizedGainDetails(
+    Array.from(detailsMap.values()).sort(
+      (a, b) => b.gain - a.gain
+    )
+  );
+}
+ useEffect(() => {
+  const searchText = form.search.trim();
+
+  if (selectedToken && searchText === selectedToken.name) {
+    setSearchResults([]);
+    return;
+  }
+
+  if (searchText.length < 2) {
+    setSearchResults([]);
+    setIsSearching(false);
+    return;
+  }
+
+  const timeout = setTimeout(async () => {
+    setIsSearching(true);
+
+    try {
+      const response = await fetch(
+        `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(
+          searchText
+        )}`
+      );
+
+      if (!response.ok) {
+        throw new Error("Erreur de recherche CoinGecko");
+      }
+
+      const data = await response.json();
+
+      const [coinsListResponse, assetPlatformsResponse] = await Promise.all([
+        fetch(
+          "https://api.coingecko.com/api/v3/coins/list?include_platform=true"
+        ),
+        fetch(
+          "https://api.coingecko.com/api/v3/asset_platforms"
+        ),
+      ]);
+
+      const coinsList = coinsListResponse.ok
+        ? await coinsListResponse.json()
+        : [];
+
+      const assetPlatforms = assetPlatformsResponse.ok
+        ? await assetPlatformsResponse.json()
+        : [];
+
+      const coinsById = new Map(
+        coinsList.map((coin) => [coin.id, coin])
+      );
+
+      const results = (data.coins || []).slice(0, 20).map((coin) => {
+        const fullCoin = coinsById.get(coin.id);
+        const networkOptions = [];
+
+        const nativePlatform = assetPlatforms.find(
+          (platform) => platform?.native_coin_id === coin.id
         );
 
-        if (!response.ok) {
-          throw new Error("Erreur de recherche CoinGecko");
+        if (nativePlatform?.id) {
+          networkOptions.push({
+            network: nativePlatform.id,
+            contractAddress: null,
+            tokenType: "native",
+          });
         }
 
-        const data = await response.json();
+        Object.entries(fullCoin?.platforms || {}).forEach(
+          ([network, contractAddress]) => {
+            if (
+              String(network || "").trim() === "" ||
+              String(contractAddress || "").trim() === ""
+            ) {
+              return;
+            }
 
-        const results = (data.coins || []).slice(0, 8).map((coin) => ({
+            networkOptions.push({
+              network,
+              contractAddress,
+              tokenType: coin.name
+                ?.toLowerCase()
+                .includes("wrapped")
+                ? "wrapped"
+                : "contract",
+            });
+          }
+        );
+
+        return {
           id: coin.id,
           name: coin.name,
           symbol: coin.symbol?.toUpperCase() || "",
           image: coin.large || coin.thumb || "",
           marketCapRank: coin.market_cap_rank,
-        }));
+          networkOptions,
+        };
+      });
 
-        setSearchResults(results);
+      setSearchResults(results);
+    } catch (error) {
+      console.error("Erreur recherche crypto :", error);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  }, 500);
 
-        const exactMatches = results.filter(
-          (coin) =>
-            coin.name.toLowerCase() === searchText.toLowerCase() ||
-            coin.symbol.toLowerCase() === searchText.toLowerCase()
-        );
+  return () => clearTimeout(timeout);
+}, [form.search, selectedToken]);
 
-        if (exactMatches.length === 1) {
-          selectToken(exactMatches[0]);
-        }
-      } catch (error) {
-        console.error("Erreur recherche crypto :", error);
-        setSearchResults([]);
-      } finally {
-        setIsSearching(false);
-      }
-    }, 500);
+function selectToken(token) {
+  const networkOptions = token.networkOptions || [];
 
-    return () => clearTimeout(timeout);
-  }, [form.search, selectedToken]);
+  setSelectedToken(token);
 
-  function selectToken(token) {
-    setSelectedToken(token);
-    setForm((previousForm) => ({
-      ...previousForm,
-      search: token.name,
-    }));
-    setSearchResults([]);
-    setMessage("");
-  }
+  setSelectedNetworkOption(
+    networkOptions.length === 1
+      ? networkOptions[0]
+      : null
+  );
 
+  setForm((previousForm) => ({
+    ...previousForm,
+    search: token.name,
+  }));
+
+  setSearchResults([]);
+  setMessage("");
+}
   function resetForm() {
     setForm({
       search: "",
@@ -154,39 +329,42 @@ export default function App() {
       buyPrice: "",
     });
 
-    setSelectedToken(null);
-    setSearchResults([]);
+   setSelectedToken(null);
+setSearchResults([]);
+setIsTestPosition(false); 
   }
 
-  async function insertTransaction({
-    portfolioId,
-    crypto,
-    type,
-    quantity,
-    unitPrice,
-    quantityBefore,
-    averagePriceBefore,
-    quantityAfter,
-    averagePriceAfter,
-  }) {
-    const { error } = await supabase.from("portfolio_transactions").insert([
-      {
-        portfolio_id: portfolioId,
-        crypto,
-        type,
-        quantity,
-        unit_price: unitPrice,
-        quantity_before: quantityBefore,
-        average_price_before: averagePriceBefore,
-        quantity_after: quantityAfter,
-        average_price_after: averagePriceAfter,
-      },
-    ]);
+ async function insertTransaction({
+  portfolioId,
+  crypto,
+  type,
+  quantity,
+  unitPrice,
+  quantityBefore,
+  averagePriceBefore,
+  quantityAfter,
+  averagePriceAfter,
+  isTest = false,
+}) {
+  const { error } = await supabase.from("portfolio_transactions").insert([
+    {
+      portfolio_id: portfolioId,
+      crypto,
+      type,
+      quantity,
+      unit_price: unitPrice,
+      quantity_before: quantityBefore,
+      average_price_before: averagePriceBefore,
+      quantity_after: quantityAfter,
+      average_price_after: averagePriceAfter,
+      is_test: isTest,
+    },
+  ]);
 
-    if (error) {
-      throw error;
-    }
+  if (error) {
+    throw error;
   }
+} 
 
   useEffect(() => {
     async function fetchFX() {
@@ -224,63 +402,143 @@ export default function App() {
 
     let isCancelled = false;
 
-    async function fetchPricesAndMetadata() {
-      try {
-        const uniqueIds = [...new Set(assets.map((asset) => asset.id))]
-          .filter(Boolean)
-          .join(",");
+   async function fetchPricesAndMetadata() {
+  try {
+    const uniqueIds = [...new Set(assets.map((asset) => asset.id))]
+      .filter(Boolean)
+      .join(",");
 
-        if (!uniqueIds) {
-          return;
-        }
-
-        const response = await fetch(
-          `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${uniqueIds}&price_change_percentage=24h`
-        );
-
-        if (!response.ok) {
-          throw new Error("Erreur prix CoinGecko");
-        }
-
-        const data = await response.json();
-
-        if (isCancelled) {
-          return;
-        }
-
-        const coinMap = new Map(
-          data.map((coin) => [
-            coin.id,
-            {
-              name: coin.name,
-              symbol: coin.symbol?.toUpperCase() || "",
-              image: coin.image || "",
-              currentPrice: Number(coin.current_price || 0),
-              priceChange24h: Number(
-                coin.price_change_percentage_24h || 0
-              ),
-            },
-          ])
-        );
-
-        setAssets((previousAssets) =>
-          previousAssets.map((asset) => {
-            const coinData = coinMap.get(asset.id);
-
-            if (!coinData) {
-              return asset;
-            }
-
-            return {
-              ...asset,
-              ...coinData,
-            };
-          })
-        );
-      } catch (error) {
-        console.error("Erreur prix crypto :", error);
-      }
+    if (!uniqueIds) {
+      return;
     }
+
+    const response = await fetch(
+      `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${uniqueIds}&price_change_percentage=24h`
+    );
+
+    if (!response.ok) {
+      throw new Error("Erreur prix CoinGecko");
+    }
+
+    const data = await response.json();
+
+    if (isCancelled) {
+      return;
+    }
+
+    const coinMap = new Map(
+      data.map((coin) => [
+        coin.id,
+        {
+          name: coin.name,
+          symbol: coin.symbol?.toUpperCase() || "",
+          image: coin.image || "",
+          currentPrice:
+            coin.current_price !== null &&
+            coin.current_price !== undefined &&
+            Number(coin.current_price) > 0
+              ? Number(coin.current_price)
+              : null,
+          priceChange24h:
+            coin.price_change_percentage_24h !== null &&
+            coin.price_change_percentage_24h !== undefined
+              ? Number(coin.price_change_percentage_24h)
+              : null,
+        },
+      ])
+    );
+
+    const dexChainAliases = {
+      "binance-smart-chain": "bsc",
+      ethereum: "ethereum",
+      "polygon-pos": "polygon",
+      solana: "solana",
+      base: "base",
+      "arbitrum-one": "arbitrum",
+      "optimistic-ethereum": "optimism",
+      avalanche: "avalanche",
+    };
+
+    const updatedAssets = await Promise.all(
+      assets.map(async (asset) => {
+        const coinData = coinMap.get(asset.id);
+
+        let currentPrice =
+          coinData?.currentPrice !== null &&
+          coinData?.currentPrice !== undefined
+            ? coinData.currentPrice
+            : asset.currentPrice;
+
+        let priceChange24h =
+          coinData?.priceChange24h !== null &&
+          coinData?.priceChange24h !== undefined
+            ? coinData.priceChange24h
+            : asset.priceChange24h;
+
+        if (
+          (!coinData || coinData.currentPrice === null) &&
+          asset.contractAddress
+        ) {
+          try {
+            const dexResponse = await fetch(
+              `https://api.dexscreener.com/latest/dex/tokens/${asset.contractAddress}`
+            );
+
+            if (dexResponse.ok) {
+              const dexData = await dexResponse.json();
+
+              const dexChainId =
+                dexChainAliases[asset.network] || asset.network;
+
+              const validPairs = (dexData?.pairs || [])
+                .filter(
+                  (pair) =>
+                    pair?.chainId === dexChainId &&
+                    Number(pair?.priceUsd) > 0
+                )
+                .sort(
+                  (a, b) =>
+                    Number(b?.liquidity?.usd || 0) -
+                    Number(a?.liquidity?.usd || 0)
+                );
+
+              const bestPair = validPairs[0];
+
+              if (bestPair) {
+                currentPrice = Number(bestPair.priceUsd);
+
+                if (
+                  bestPair?.priceChange?.h24 !== null &&
+                  bestPair?.priceChange?.h24 !== undefined
+                ) {
+                  priceChange24h = Number(bestPair.priceChange.h24);
+                }
+              }
+            }
+          } catch (dexError) {
+            console.error(
+              `Erreur DEX Screener pour ${asset.id} :`,
+              dexError
+            );
+          }
+        }
+
+        return {
+          ...asset,
+          ...(coinData || {}),
+          currentPrice,
+          priceChange24h,
+        };
+      })
+    );
+
+    if (!isCancelled) {
+      setAssets(updatedAssets);
+    }
+  } catch (error) {
+    console.error("Erreur prix crypto :", error);
+  }
+} 
 
     fetchPricesAndMetadata();
 
@@ -315,9 +573,11 @@ export default function App() {
     setMessage("");
 
     try {
-      const existingAsset = assets.find(
-        (asset) => asset.id === selectedToken.id
-      );
+     const existingAsset = assets.find(
+  (asset) =>
+    asset.id === selectedToken.id &&
+    Boolean(asset.isTest) === Boolean(isTestPosition)
+); 
 
       if (existingAsset) {
         const quantityBefore = existingAsset.quantity;
@@ -338,47 +598,53 @@ export default function App() {
 
         if (error) throw error;
 
-        await insertTransaction({
-          portfolioId: existingAsset.dbId,
-          crypto: selectedToken.id,
-          type: "purchase",
-          quantity,
-          unitPrice: buyPrice,
-          quantityBefore,
-          averagePriceBefore,
-          quantityAfter,
-          averagePriceAfter,
-        });
+      await insertTransaction({
+  portfolioId: existingAsset.dbId,
+  crypto: selectedToken.id,
+  type: "purchase",
+  quantity,
+  unitPrice: buyPrice,
+  quantityBefore,
+  averagePriceBefore,
+  quantityAfter,
+  averagePriceAfter,
+  isTest: Boolean(existingAsset.isTest),
+});  
 
         setMessage(
           `${selectedToken.name} a été mis à jour avec le nouveau prix moyen.`
         );
       } else {
-        const { data, error } = await supabase
-          .from("portfolios")
-          .insert([
-            {
-              crypto: selectedToken.id,
-              quantite: quantity,
-              prix_achat: buyPrice,
-            },
-          ])
-          .select("id")
-          .single();
+       const { data, error } = await supabase
+  .from("portfolios")
+  .insert([
+ {
+  crypto: selectedToken.id,
+  quantite: quantity,
+  prix_achat: buyPrice,
+  is_test: isTestPosition,
+network: selectedNetworkOption?.network || null,
+contract_address: selectedNetworkOption?.contractAddress || null,
+token_type: selectedNetworkOption?.tokenType || null,  
+},
+])
+  .select("id")
+  .single(); 
 
         if (error) throw error;
 
-        await insertTransaction({
-          portfolioId: data.id,
-          crypto: selectedToken.id,
-          type: "purchase",
-          quantity,
-          unitPrice: buyPrice,
-          quantityBefore: 0,
-          averagePriceBefore: 0,
-          quantityAfter: quantity,
-          averagePriceAfter: buyPrice,
-        });
+      await insertTransaction({
+  portfolioId: data.id,
+  crypto: selectedToken.id,
+  type: "purchase",
+  quantity,
+  unitPrice: buyPrice,
+  quantityBefore: 0,
+  averagePriceBefore: 0,
+  quantityAfter: quantity,
+  averagePriceAfter: buyPrice,
+  isTest: isTestPosition,
+});
 
         setMessage(`${selectedToken.name} a été ajouté au portefeuille.`);
       }
@@ -405,146 +671,215 @@ export default function App() {
     setMessage("");
   }
 
-  function closeTransactionForm() {
-    setEditingAsset(null);
-    setTransactionType("purchase");
-    setTransactionForm({ quantity: "", unitPrice: "" });
-    setTransactionMessage("");
+ async function clearTestData(asset) {
+  if (!asset?.isTest) {
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `Effacer uniquement les données de test de ${asset.name} ? Les données réelles ne seront pas touchées.`
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  setHistoryMessage("");
+
+  try {
+    const { error: transactionsError } = await supabase
+      .from("portfolio_transactions")
+      .delete()
+      .eq("portfolio_id", asset.dbId)
+      .eq("is_test", true);
+
+    if (transactionsError) {
+      throw transactionsError;
+    }
+
+    const { error: portfolioError } = await supabase
+      .from("portfolios")
+      .delete()
+      .eq("id", asset.dbId)
+      .eq("is_test", true);
+
+    if (portfolioError) {
+      throw portfolioError;
+    }
+
+    closeHistory();
+
+    setMessage(
+      `Les données de test de ${asset.name} ont été supprimées.`
+    );
+
+    await loadAssets();
+  } catch (error) {
+    console.error("Erreur suppression test :", error);
+    setHistoryMessage(
+      `Suppression impossible : ${error?.message || "erreur inconnue"}`
+    );
+  }
+}
+
+function closeTransactionForm() {
+  setEditingAsset(null);
+  setTransactionType("purchase");
+  setTransactionForm({ quantity: "", unitPrice: "" });
+  setTransactionMessage("");
+  setIsSavingTransaction(false);
+}
+ async function saveTransaction() {
+  if (!editingAsset || isSavingTransaction) return;
+
+  const quantity = Number(transactionForm.quantity);
+  const unitPrice = Number(transactionForm.unitPrice);
+  const quantityBefore = Number(editingAsset.quantity);
+  const averagePriceBefore = Number(editingAsset.buyPrice);
+  const portfolioId = editingAsset.dbId;
+
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    setTransactionMessage("Entre une quantité supérieure à zéro.");
+    return;
+  }
+
+  if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+    setTransactionMessage(
+      transactionType === "purchase"
+        ? "Entre le prix du nouvel achat."
+        : "Entre le prix de vente."
+    );
+    return;
+  }
+
+  if (transactionType === "sale" && quantity > quantityBefore) {
+    setTransactionMessage(
+      `La quantité vendue ne peut pas dépasser ${formatNumber(
+        quantityBefore
+      )}.`
+    );
+    return;
+  }
+
+  setIsSavingTransaction(true);
+  setTransactionMessage("");
+
+  try {
+    if (transactionType === "purchase") {
+      const quantityAfter = quantityBefore + quantity;
+      const averagePriceAfter =
+        (quantityBefore * averagePriceBefore + quantity * unitPrice) /
+        quantityAfter;
+
+      const { error } = await supabase
+        .from("portfolios")
+        .update({
+          quantite: quantityAfter,
+          prix_achat: averagePriceAfter,
+        })
+        .eq("id", portfolioId);
+
+      if (error) throw error;
+
+      await insertTransaction({
+        portfolioId,
+        crypto: editingAsset.id,
+        type: "purchase",
+        quantity,
+        unitPrice,
+        quantityBefore,
+        averagePriceBefore,
+        quantityAfter,
+        averagePriceAfter,
+      });
+
+      setMessage(
+        `Nouvel achat enregistré pour ${editingAsset.name}. Prix moyen recalculé.`
+      );
+    } else {
+      const quantityAfter = quantityBefore - quantity;
+      const averagePriceAfter =
+        quantityAfter > 0 ? averagePriceBefore : 0;
+
+    if (quantityAfter === 0) {
+  const confirmed = window.confirm(
+    `Cette vente clôture entièrement ${editingAsset.name}. La position sera retirée du portefeuille, mais son historique et ses gains réalisés seront conservés. Continuer ?`
+  );
+
+  if (!confirmed) {
+    setIsSavingTransaction(false);
+    return;
+  }
+
+  const { error } = await supabase
+    .from("portfolios")
+    .update({
+      quantite: 0,
+      prix_achat: 0,
+    })
+    .eq("id", portfolioId);
+
+  if (error) throw error;
+
+ await insertTransaction({
+  portfolioId,
+  crypto: editingAsset.id,
+  type: "sale",
+  quantity,
+  unitPrice,
+  quantityBefore,
+  averagePriceBefore,
+  quantityAfter: 0,
+  averagePriceAfter: 0,
+  isTest: Boolean(editingAsset.isTest),
+}); 
+
+  setMessage(
+    `${editingAsset.name} a été entièrement vendu. La position est clôturée et son historique est conservé.`
+  );
+} else {
+  const { error } = await supabase
+    .from("portfolios")
+    .update({
+      quantite: quantityAfter,
+    })
+    .eq("id", portfolioId);
+
+  if (error) throw error;
+
+  await insertTransaction({
+  portfolioId,
+  crypto: editingAsset.id,
+  type: "sale",
+  quantity,
+  unitPrice,
+  quantityBefore,
+  averagePriceBefore,
+  quantityAfter,
+  averagePriceAfter,
+  isTest: Boolean(editingAsset.isTest),
+});
+
+  setMessage(
+    `Vente partielle enregistrée pour ${editingAsset.name}. Le prix moyen restant est inchangé.`
+  );
+}  
+    }
+
+    closeTransactionForm();
+    await loadAssets();   
+await loadRealizedGains();
+  } catch (error) {
+    console.error("Erreur transaction :", error);
+    setTransactionMessage(
+      `Enregistrement impossible : ${
+        error?.message || "erreur inconnue"
+      }`
+    );
+  } finally {
     setIsSavingTransaction(false);
   }
-
-  async function saveTransaction() {
-    if (!editingAsset || isSavingTransaction) return;
-
-    const quantity = Number(transactionForm.quantity);
-    const unitPrice =
-      transactionType === "purchase"
-        ? Number(transactionForm.unitPrice)
-        : 0;
-    const quantityBefore = Number(editingAsset.quantity);
-    const averagePriceBefore = Number(editingAsset.buyPrice);
-    const portfolioId = editingAsset.dbId;
-
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      setTransactionMessage("Entre une quantité supérieure à zéro.");
-      return;
-    }
-
-    if (
-      transactionType === "purchase" &&
-      (!Number.isFinite(unitPrice) || unitPrice <= 0)
-    ) {
-      setTransactionMessage("Entre le prix du nouvel achat.");
-      return;
-    }
-
-    if (transactionType === "sale" && quantity > quantityBefore) {
-      setTransactionMessage(
-        `La quantité vendue ne peut pas dépasser ${formatNumber(
-          quantityBefore
-        )}.`
-      );
-      return;
-    }
-
-    setIsSavingTransaction(true);
-    setTransactionMessage("");
-
-    try {
-      if (transactionType === "purchase") {
-        const quantityAfter = quantityBefore + quantity;
-        const averagePriceAfter =
-          (quantityBefore * averagePriceBefore + quantity * unitPrice) /
-          quantityAfter;
-
-        const { error } = await supabase
-          .from("portfolios")
-          .update({
-            quantite: quantityAfter,
-            prix_achat: averagePriceAfter,
-          })
-          .eq("id", portfolioId);
-
-        if (error) throw error;
-
-        await insertTransaction({
-          portfolioId,
-          crypto: editingAsset.id,
-          type: "purchase",
-          quantity,
-          unitPrice,
-          quantityBefore,
-          averagePriceBefore,
-          quantityAfter,
-          averagePriceAfter,
-        });
-
-        setMessage(
-          `Nouvel achat enregistré pour ${editingAsset.name}. Prix moyen recalculé.`
-        );
-      } else {
-        const quantityAfter = quantityBefore - quantity;
-        const averagePriceAfter = quantityAfter > 0 ? averagePriceBefore : 0;
-
-        if (quantityAfter === 0) {
-          const confirmed = window.confirm(
-            `Cette vente clôture entièrement ${editingAsset.name}. La position et tout son historique seront supprimés. Continuer ?`
-          );
-
-          if (!confirmed) {
-            setIsSavingTransaction(false);
-            return;
-          }
-
-          const { error } = await supabase
-            .from("portfolios")
-            .delete()
-            .eq("id", portfolioId);
-
-          if (error) throw error;
-
-          setMessage(
-            `${editingAsset.name} a été entièrement vendu et retiré du portefeuille.`
-          );
-        } else {
-          const { error } = await supabase
-            .from("portfolios")
-            .update({ quantite: quantityAfter })
-            .eq("id", portfolioId);
-
-          if (error) throw error;
-
-          await insertTransaction({
-            portfolioId,
-            crypto: editingAsset.id,
-            type: "sale",
-            quantity,
-            unitPrice,
-            quantityBefore,
-            averagePriceBefore,
-            quantityAfter,
-            averagePriceAfter,
-          });
-
-          setMessage(
-            `Vente partielle enregistrée pour ${editingAsset.name}. Le prix moyen restant est inchangé.`
-          );
-        }
-      }
-
-      closeTransactionForm();
-      await loadAssets();
-    } catch (error) {
-      console.error("Erreur transaction :", error);
-      setTransactionMessage(
-        `Enregistrement impossible : ${
-          error?.message || "erreur inconnue"
-        }`
-      );
-    } finally {
-      setIsSavingTransaction(false);
-    }
-  }
+} 
 
   async function openHistory(asset) {
     setHistoryAsset(asset);
@@ -792,9 +1127,34 @@ export default function App() {
                   Ajouter une crypto
                 </h2>
 
+
                 <p style={styles.sectionDescription}>
                   Recherche par nom ou symbole
                 </p>
+                {TEST_MODE_ENABLED && (
+  <label
+    style={{
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 8,
+      marginTop: 10,
+      color: "#f1c94c",
+      fontSize: 13,
+      fontWeight: 700,
+      cursor: "pointer",
+    }}
+  >
+    <input
+      type="checkbox"
+      checked={isTestPosition}
+      onChange={(event) =>
+        setIsTestPosition(event.target.checked)
+      }
+    />
+    Position de test
+  </label>
+)}
+
               </div>
             </div>
           </div>
@@ -827,62 +1187,188 @@ export default function App() {
               </div>
             )}
 
-            {searchResults.length > 0 && (
-              <div style={styles.resultsBox}>
-                {searchResults.map((token) => (
-                  <button
-                    key={token.id}
-                    type="button"
-                    style={styles.resultButton}
-                    onClick={() => selectToken(token)}
-                  >
-                    <img
-                      src={token.image}
-                      alt=""
-                      style={styles.resultLogo}
-                    />
+           {searchResults.length > 0 && (
+  <div style={styles.resultsBox}>
+    {searchResults.flatMap((token) => {
+      const options =
+        token.networkOptions?.length > 0
+          ? token.networkOptions
+          : [null];
 
-                    <div style={styles.resultText}>
-                      <strong style={styles.resultName}>
-                        {token.name}
-                      </strong>
+      return options.map((option, optionIndex) => (
+        <button
+          key={`${token.id}-${option?.network || "unknown"}-${option?.contractAddress || optionIndex}`}
+          type="button"
+          style={styles.resultButton}
+          onClick={() =>
+            selectToken({
+              ...token,
+              networkOptions: option ? [option] : [],
+            })
+          }
+        >
+          <img
+            src={token.image}
+            alt=""
+            style={styles.resultLogo}
+          />
 
-                      <span style={styles.resultSymbol}>
-                        {token.symbol}
-                      </span>
-                    </div>
+          <div style={styles.resultText}>
+            <strong style={styles.resultName}>
+              {token.name}
+            </strong>
 
-                    <span style={styles.rank}>
-                      {token.marketCapRank
-                        ? `#${token.marketCapRank}`
-                        : "Non classé"}
-                    </span>
-                  </button>
-                ))}
-              </div>
+            <span style={styles.resultSymbol}>
+              {token.symbol}
+            </span>
+
+            {option ? (
+              <>
+                <span
+                  style={{
+                    ...styles.resultSymbol,
+                    display: "block",
+                    marginTop: 4,
+                  }}
+                >
+                  Réseau : {option.network}
+                  {option.tokenType === "native"
+                    ? " · Token natif"
+                    : ` · ${option.tokenType}`}
+                </span>
+
+                <span
+                  style={{
+                    ...styles.resultSymbol,
+                    display: "block",
+                    marginTop: 3,
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  {option.contractAddress
+                    ? `Contrat : ${option.contractAddress}`
+                    : "Contrat : aucun — token natif"}
+                </span>
+              </>
+            ) : (
+              <span
+                style={{
+                  ...styles.resultSymbol,
+                  display: "block",
+                  marginTop: 4,
+                }}
+              >
+                Réseau non identifié
+              </span>
             )}
           </div>
 
+          <span style={styles.rank}>
+            {token.marketCapRank
+              ? `#${token.marketCapRank}`
+              : "Non classé"}
+          </span>
+        </button>
+      ));
+    })}
+  </div>
+)} 
+          </div>
+
           {selectedToken && (
-            <div style={styles.selectedToken}>
-              <img
-                src={selectedToken.image}
-                alt=""
-                style={styles.selectedLogo}
-              />
+  <div style={styles.selectedToken}>
+    <img
+      src={selectedToken.image}
+      alt=""
+      style={styles.selectedLogo}
+    />
 
-              <div>
-                <strong style={styles.selectedName}>
-                  {selectedToken.name}
-                </strong>
+    <div>
+      <strong style={styles.selectedName}>
+        {selectedToken.name}
+      </strong>
 
-                <span style={styles.selectedSymbol}>
-                  {selectedToken.symbol} · ID CoinGecko :{" "}
-                  {selectedToken.id}
-                </span>
-              </div>
-            </div>
-          )}
+
+      <span style={styles.selectedSymbol}>
+        {selectedToken.symbol} · ID CoinGecko : {selectedToken.id}
+      </span>
+
+{selectedToken.networkOptions?.length === 1 ? (
+  <span
+    style={{
+      ...styles.selectedSymbol,
+      display: "block",
+      marginTop: 6,
+    }}
+  >
+    Réseau : {selectedToken.networkOptions[0].network}
+    {selectedToken.networkOptions[0].tokenType === "native"
+      ? " · Token natif"
+      : ` · ${selectedToken.networkOptions[0].tokenType}`}
+    {selectedToken.networkOptions[0].contractAddress
+      ? ` · Contrat : ${selectedToken.networkOptions[0].contractAddress}`
+      : ""}
+  </span>
+) : selectedToken.networkOptions?.length > 1 ? (
+  <div
+    style={{
+      display: "flex",
+      flexDirection: "column",
+      gap: 8,
+      marginTop: 8,
+    }}
+  >
+    {selectedToken.networkOptions.map((option) => {
+      const isSelected =
+        selectedNetworkOption?.network === option.network &&
+        selectedNetworkOption?.contractAddress === option.contractAddress;
+
+      return (
+        <button
+          key={`${option.network}-${option.contractAddress || "native"}`}
+          type="button"
+          onClick={() => setSelectedNetworkOption(option)}
+          style={{
+            padding: "9px 11px",
+            borderRadius: 10,
+            border: isSelected
+              ? "1px solid rgba(94, 219, 54, .85)"
+              : "1px solid rgba(76,89,81,.60)",
+            background: isSelected
+              ? "rgba(49, 145, 54, .18)"
+              : "rgba(3,15,11,.72)",
+            color: isSelected ? "#9bea87" : "#b5bdb7",
+            textAlign: "left",
+            cursor: "pointer",
+          }}
+        >
+          <strong>{option.network}</strong>
+          {" · "}
+          {option.tokenType === "native"
+            ? "Token natif"
+            : option.tokenType}
+
+          {option.contractAddress
+            ? ` · Contrat : ${option.contractAddress}`
+            : ""}
+        </button>
+      );
+    })}
+  </div>
+) : (
+  <span
+    style={{
+      ...styles.selectedSymbol,
+      display: "block",
+      marginTop: 4,
+    }}
+  >
+    Réseau non identifié
+  </span>
+)}       
+    </div>
+  </div>
+)}
 
           <div style={styles.formGrid} className="ld-form-grid">
             <div>
@@ -1248,47 +1734,98 @@ export default function App() {
               </span>
             </div>
 
-            <div style={styles.summaryCard}>
-              <span style={styles.summaryLabel}>
-                Bénéfice total
-              </span>
+<div style={styles.summaryCard}>
+  <span style={styles.summaryLabel}>
+    Bénéfice total
+  </span>
 
-              <strong
-                style={{
-                  ...styles.summaryValue,
-                  color:
-                    profitUSD >= 0
-                      ? "#4ade80"
-                      : "#fb7185",
-                }}
-              >
-                {showAmounts
-                  ? `${profitUSD >= 0 ? "+" : ""}${formatUSD(
-                      profitUSD
-                    )}`
-                  : "••••••"}
-              </strong>
+  <strong
+    style={{
+      ...styles.summaryValue,
+      color:
+        profitUSD >= 0
+          ? "#4ade80"
+          : "#fb7185",
+    }}
+  >
+    {showAmounts
+      ? `${profitUSD >= 0 ? "+" : ""}${formatUSD(
+          profitUSD
+        )}`
+      : "••••••"}
+  </strong>
 
-              <span
-                style={{
-                  ...styles.summarySecondary,
-                  color:
-                    profitEUR >= 0
-                      ? "#4ade80"
-                      : "#fb7185",
-                }}
-              >
-                {showAmounts
-                  ? `${profitEUR >= 0 ? "+" : ""}${formatEUR(
-                      profitEUR
-                    )}`
-                  : "••••••"}
-              </span>
-            </div>
+  <span
+    style={{
+      ...styles.summarySecondary,
+      color:
+        profitEUR >= 0
+          ? "#4ade80"
+          : "#fb7185",
+    }}
+  >
+    {showAmounts
+      ? `${profitEUR >= 0 ? "+" : ""}${formatEUR(
+          profitEUR
+        )}`
+      : "••••••"}
+  </span>
+</div>
 
+<div
+  style={{
+    ...styles.summaryCard,
+    cursor: "pointer",
+  }}
+onClick={() => setShowRealizedDetails((current) => !current)}
+>
+  <span style={styles.summaryLabel}>
+    Gains réalisés
+  </span>
+
+  {showRealizedDetails ? (
+    <>
+      <strong
+        style={{
+          ...styles.summaryValue,
+          color: realizedGainUSD >= 0 ? "#4ade80" : "#fb7185",
+        }}
+      >
+        {showAmounts
+          ? `${realizedGainUSD >= 0 ? "+" : ""}${formatUSD(
+              realizedGainUSD
+            )}`
+          : "••••••"}
+      </strong>
+
+      <span
+        style={{
+          ...styles.summarySecondary,
+          color: realizedGainUSD >= 0 ? "#4ade80" : "#fb7185",
+        }}
+      >
+        {showAmounts
+          ? `${realizedGainUSD >= 0 ? "+" : ""}${formatEUR(
+              realizedGainUSD * usdToEur
+            )}`
+          : "••••••"}
+      </span>
+    </>
+  ) : (
+    <strong
+      style={{
+        ...styles.summaryValue,
+        color: "#4ade80",
+        fontSize: 15,
+      }}
+    >
+      Cliquez
+    </strong>
+  )}  
+</div>
           </div>
         </section>
-      </div>
+             </div>
 
       {editingAsset && (
         <div style={styles.modalOverlay}>
@@ -1392,27 +1929,34 @@ export default function App() {
                 />
               </div>
 
-              {transactionType === "purchase" && (
-                <div>
-                  <label style={styles.label}>
-                    Prix du nouvel achat
-                  </label>
-                  <input
-                    style={styles.input}
-                    type="number"
-                    min="0"
-                    step="any"
-                    placeholder="Prix unitaire en USD"
-                    value={transactionForm.unitPrice}
-                    onChange={(event) =>
-                      setTransactionForm({
-                        ...transactionForm,
-                        unitPrice: event.target.value,
-                      })
-                    }
-                  />
-                </div>
-              )}
+            {(transactionType === "purchase" || transactionType === "sale") && (
+  <div>
+    <label style={styles.label}>
+      {transactionType === "purchase"
+        ? "Prix du nouvel achat"
+        : "Prix de vente"}
+    </label>
+
+    <input
+      style={styles.input}
+      type="number"
+      min="0"
+      step="any"
+      placeholder={
+        transactionType === "purchase"
+          ? "Prix unitaire en USD"
+          : "Prix de vente unitaire en USD"
+      }
+      value={transactionForm.unitPrice}
+      onChange={(event) =>
+        setTransactionForm({
+          ...transactionForm,
+          unitPrice: event.target.value,
+        })
+      }
+    />
+  </div>
+)}  
             </div>
 
             {Number(transactionForm.quantity) > 0 &&
@@ -1504,7 +2048,25 @@ export default function App() {
                 ×
               </button>
             </div>
-
+{TEST_MODE_ENABLED && historyAsset?.isTest && (
+  <button
+    type="button"
+    onClick={() => clearTestData(historyAsset)}
+    style={{
+      width: "100%",
+      marginBottom: 16,
+      padding: "10px 14px",
+      borderRadius: 10,
+      border: "1px solid rgba(251, 113, 133, 0.45)",
+      background: "rgba(251, 113, 133, 0.08)",
+      color: "#fda4af",
+      fontWeight: 700,
+      cursor: "pointer",
+    }}
+  >
+    Effacer ce test
+  </button>
+)}
             {isLoadingHistory ? (
               <div style={styles.historyEmpty}>Chargement...</div>
             ) : historyItems.length === 0 ? (
@@ -1515,83 +2077,169 @@ export default function App() {
               </div>
             ) : (
               <div style={styles.historyList}>
-                {historyItems.map((transaction, index) => {
-                  const canUndo = index === 0;
-                  const isPurchase = transaction.type === "purchase";
-                  return (
-                    <div key={transaction.id} style={styles.historyItem}>
-                      <div style={styles.historyTopRow}>
-                        <span
-                          style={{
-                            ...styles.historyType,
-                            color: isPurchase ? "#86efac" : "#fda4af",
-                            background: isPurchase
-                              ? "rgba(34,197,94,.10)"
-                              : "rgba(244,63,94,.10)",
-                          }}
-                        >
-                          {isPurchase ? "Achat" : "Vente"}
-                        </span>
-                        <span style={styles.historyDate}>
-                          {new Intl.DateTimeFormat("fr-FR", {
-                            dateStyle: "medium",
-                            timeStyle: "short",
-                          }).format(new Date(transaction.created_at))}
-                        </span>
-                      </div>
+             {(() => {
+  const realizedGainTotal = historyItems.reduce(
+    (total, transaction) => {
+      if (transaction.type !== "sale") {
+        return total;
+      }
 
-                      <div style={styles.historyDetails}>
-                        <span>
-                          Quantité : <strong>{formatNumber(transaction.quantity)}</strong>
-                        </span>
-                        {transaction.type === "purchase" && (
-                          <span>
-                            Prix d’achat :{" "}
-                            <strong>
-                              {formatUSD(transaction.unit_price, true)}
-                            </strong>
-                          </span>
-                        )}
-                        <span>
-                          Position : <strong>{formatNumber(transaction.quantity_before)}</strong> → <strong>{formatNumber(transaction.quantity_after)}</strong>
-                        </span>
-                        <span>
-                          {transaction.type === "purchase"
-                            ? "Prix moyen après : "
-                            : "Prix moyen restant : "}
-                          <strong>
-                            {formatUSD(
-                              transaction.average_price_after,
-                              true
-                            )}
-                          </strong>
-                        </span>
-                      </div>
+      const realizedGain =
+        (Number(transaction.unit_price || 0) -
+          Number(transaction.average_price_before || 0)) *
+        Number(transaction.quantity || 0);
 
-                      <button
-                        type="button"
-                        style={{
-                          ...styles.undoButton,
-                          opacity: canUndo ? 1 : 0.45,
-                          cursor: canUndo ? "pointer" : "not-allowed",
-                        }}
-                        disabled={!canUndo || undoingTransactionId === transaction.id}
-                        onClick={() => undoTransaction(transaction)}
-                        title={
-                          canUndo
-                            ? "Annuler la dernière transaction"
-                            : "Seule la transaction la plus récente peut être annulée"
-                        }
-                      >
-                        {undoingTransactionId === transaction.id
-                          ? "Annulation..."
-                          : canUndo
-                          ? "Annuler cette transaction"
-                          : "Transaction verrouillée"}
-                      </button>
-                    </div>
-                  );
-                })}
+      return total + realizedGain;
+    },
+    0
+  );
+
+  return (
+    <div style={styles.currentPositionBox}>
+      <div style={styles.line}>
+        <span style={styles.lineLabel}>
+          Gains réalisés cumulés
+        </span>
+
+        <strong
+          style={{
+            ...styles.lineValue,
+            color:
+              realizedGainTotal >= 0
+                ? "#4ade80"
+                : "#fb7185",
+          }}
+        >
+          {realizedGainTotal >= 0 ? "+" : ""}
+          {formatUSD(realizedGainTotal)}
+        </strong>
+      </div>
+    </div>
+  );
+})()}   
+            {historyItems.map((transaction, index) => {
+  const canUndo = index === 0;
+  const isPurchase = transaction.type === "purchase";
+
+  const realizedGain = !isPurchase
+    ? (Number(transaction.unit_price || 0) -
+        Number(transaction.average_price_before || 0)) *
+      Number(transaction.quantity || 0)
+    : 0;
+
+  return (
+    <div key={transaction.id} style={styles.historyItem}>
+      <div style={styles.historyTopRow}>
+        <span
+          style={{
+            ...styles.historyType,
+            color: isPurchase ? "#86efac" : "#fda4af",
+            background: isPurchase
+              ? "rgba(34,197,94,.10)"
+              : "rgba(244,63,94,.10)",
+          }}
+        >
+          {isPurchase ? "Achat" : "Vente"}
+        </span>
+
+        <span style={styles.historyDate}>
+          {new Intl.DateTimeFormat("fr-FR", {
+            dateStyle: "medium",
+            timeStyle: "short",
+          }).format(new Date(transaction.created_at))}
+        </span>
+      </div>
+
+      <div style={styles.historyDetails}>
+        <span>
+          Quantité :{" "}
+          <strong>{formatNumber(transaction.quantity)}</strong>
+        </span>
+
+        {isPurchase ? (
+          <span>
+            Prix d’achat :{" "}
+            <strong>
+              {formatUSD(transaction.unit_price, true)}
+            </strong>
+          </span>
+        ) : (
+          <>
+            <span>
+              Prix de vente :{" "}
+              <strong>
+                {formatUSD(transaction.unit_price, true)}
+              </strong>
+            </span>
+
+            <span>
+              Gain réalisé :{" "}
+              <strong
+                style={{
+                  color:
+                    realizedGain >= 0
+                      ? "#4ade80"
+                      : "#fb7185",
+                }}
+              >
+                {realizedGain >= 0 ? "+" : ""}
+                {formatUSD(realizedGain)}
+              </strong>
+            </span>
+          </>
+        )}
+
+        <span>
+          Position :{" "}
+          <strong>
+            {formatNumber(transaction.quantity_before)}
+          </strong>{" "}
+          →{" "}
+          <strong>
+            {formatNumber(transaction.quantity_after)}
+          </strong>
+        </span>
+
+        <span>
+          {isPurchase
+            ? "Prix moyen après : "
+            : "Prix moyen restant : "}
+          <strong>
+            {formatUSD(
+              transaction.average_price_after,
+              true
+            )}
+          </strong>
+        </span>
+      </div>
+
+      <button
+        type="button"
+        style={{
+          ...styles.undoButton,
+          opacity: canUndo ? 1 : 0.45,
+          cursor: canUndo ? "pointer" : "not-allowed",
+        }}
+        disabled={
+          !canUndo ||
+          undoingTransactionId === transaction.id
+        }
+        onClick={() => undoTransaction(transaction)}
+        title={
+          canUndo
+            ? "Annuler la dernière transaction"
+            : "Seule la transaction la plus récente peut être annulée"
+        }
+      >
+        {undoingTransactionId === transaction.id
+          ? "Annulation..."
+          : canUndo
+          ? "Annuler cette transaction"
+          : "Transaction verrouillée"}
+      </button>
+    </div>
+  );
+})}    
               </div>
             )}
 
@@ -1622,8 +2270,8 @@ const responsiveCss = `
     .ld-performance { padding: 18px 14px !important; min-height: 138px !important; }
     .ld-add-section { padding: 18px 14px !important; }
     .ld-form-grid { grid-template-columns: 1fr !important; }
-    .ld-card-grid, .ld-summary-grid { grid-template-columns: 1fr !important; }
-
+   .ld-card-grid { grid-template-columns: 1fr !important; }
+.ld-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } 
     /* Cartes de positions : gabarit mobile compact et sans débordement. */
     .ld-card-grid {
       width: 100% !important;
@@ -1724,6 +2372,7 @@ const responsiveCss = `
       white-space: nowrap !important;
     }
   }
+    
   @media (max-width: 500px) {
     .ld-header { align-items: flex-start !important; }
     .ld-header > div:last-child { width: 82px !important; height: 82px !important; border-radius: 18px !important; }
@@ -1731,7 +2380,11 @@ const responsiveCss = `
     .ld-header p:first-child { font-size: 11px !important; }
     .ld-crypto-card { padding: 11px !important; }
     .ld-card-action { font-size: 12px !important; padding-inline: 4px !important; }
-  }
+ .ld-summary-grid strong {
+  font-size: 15px !important;
+  white-space: nowrap !important;
+}
+    }
 `;
 
 const styles = {
@@ -1860,8 +2513,23 @@ const styles = {
   bottomSummaryHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, marginBottom: 18 },
   visibilityButton: { display: "flex", alignItems: "center", justifyContent: "center", gap: 8, flexShrink: 0, padding: "10px 14px", border: "1px solid rgba(88,200,62,.36)", borderRadius: 999, background: "#0b2117", color: "#b9e9b0", fontSize: 13, fontWeight: 800, cursor: "pointer" },
   visibilityIcon: { fontSize: 16, lineHeight: 1 },
-  summaryGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 14 },
-  summaryCard: { display: "flex", flexDirection: "column", gap: 8, padding: 20, border: "1px solid rgba(76,89,81,.54)", borderRadius: 18, background: "rgba(3,15,11,.88)", boxShadow: "0 18px 45px rgba(0,0,0,.18)" },
+  summaryGrid: {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: 12,
+},
+summaryCard: {
+  display: "flex",
+  flexDirection: "column",
+  gap: 6,
+  padding: "14px 16px",
+  minHeight: 105,
+  justifyContent: "center",
+  border: "1px solid rgba(76,89,81,.54)",
+  borderRadius: 16,
+  background: "rgba(3,15,11,.88)",
+  boxShadow: "0 18px 45px rgba(0,0,0,.18)",
+},
   summaryLabel: { color: "#8e9891", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: .7 },
   summaryValue: { color: "#f3d58e", fontSize: 26 }, summarySecondary: { color: "#728078", fontSize: 14, fontWeight: 700 },
   euroSection: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, marginTop: 22, padding: 22, border: "1px solid rgba(76,89,81,.5)", borderRadius: 18, background: "rgba(2,12,9,.8)" },
