@@ -40,12 +40,8 @@ export default function App() {
   const [realizedGainUSD, setRealizedGainUSD] = useState(0);
   const [realizedGainDetails, setRealizedGainDetails] = useState([]);
   const [showRealizedDetails, setShowRealizedDetails] = useState(false);
-  const [showProfitAmounts, setShowProfitAmounts] = useState(true);
   const [showRealizedAmounts, setShowRealizedAmounts] = useState(true);
-  
-  const [showInvestedAmounts, setShowInvestedAmounts] = useState(true);
-  const [showCurrentAmounts, setShowCurrentAmounts] = useState(true);
- 
+
   const [message, setMessage] = useState("");
 
   const [showAmounts, setShowAmounts] = useState(() => {
@@ -115,6 +111,7 @@ export default function App() {
         "id, crypto, quantity, unit_price, average_price_before, created_at"
       )
       .eq("type", "sale")
+      .eq("is_test", false)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -702,6 +699,67 @@ export default function App() {
     setMessage("");
   }
 
+  async function clearTestData(asset) {
+    if (!asset?.isTest) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Effacer uniquement les données de test de ${asset.name} ? Les données réelles ne seront pas touchées.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setHistoryMessage("");
+
+    try {
+      const {
+        error: transactionsError,
+      } = await supabase
+        .from("portfolio_transactions")
+        .delete()
+        .eq("portfolio_id", asset.dbId)
+        .eq("is_test", true);
+
+      if (transactionsError) {
+        throw transactionsError;
+      }
+
+      const {
+        error: portfolioError,
+      } = await supabase
+        .from("portfolios")
+        .delete()
+        .eq("id", asset.dbId)
+        .eq("is_test", true);
+
+      if (portfolioError) {
+        throw portfolioError;
+      }
+
+      closeHistory();
+
+      setMessage(
+        `Les données de test de ${asset.name} ont été supprimées.`
+      );
+
+      await loadAssets();
+    } catch (error) {
+      console.error(
+        "Erreur suppression test :",
+        error
+      );
+
+      setHistoryMessage(
+        `Suppression impossible : ${
+          error?.message || "erreur inconnue"
+        }`
+      );
+    }
+  }
+
   function closeTransactionForm() {
     setEditingAsset(null);
     setTransactionType("purchase");
@@ -1076,34 +1134,12 @@ export default function App() {
       return;
     }
 
-    try {
-      if (asset.isTest) {
-        const { error: transactionsError } = await supabase
-          .from("portfolio_transactions")
-          .delete()
-          .eq("portfolio_id", asset.dbId)
-          .eq("is_test", true);
+    const { error } = await supabase
+      .from("portfolios")
+      .delete()
+      .eq("id", asset.dbId);
 
-        if (transactionsError) {
-          throw transactionsError;
-        }
-      }
-
-      const { error } = await supabase
-        .from("portfolios")
-        .delete()
-        .eq("id", asset.dbId);
-
-      if (error) {
-        throw error;
-      }
-
-      setMessage(
-        asset.isTest
-          ? `${asset.name} test a été supprimé avec son historique de test.`
-          : `${asset.name} a été supprimé.`
-      );
-    } catch (error) {
+    if (error) {
       console.error(
         "Erreur suppression :",
         error
@@ -1115,6 +1151,10 @@ export default function App() {
 
       return;
     }
+
+    setMessage(
+      `${asset.name} a été supprimé.`
+    );
 
     await loadAssets();
     await loadRealizedGains();
@@ -2282,674 +2322,88 @@ export default function App() {
             style={styles.summaryGrid}
             className="ld-summary-grid"
           >
-                        <div
-              style={{
-                ...styles.summaryCard,
-                gridColumn: "1 / -1",
-                padding: "24px 18px",
-              }}
-            >
-              <span
-                style={{
-                  ...styles.summaryLabel,
-                  color: "#efd08a",
-                  textAlign: "center",
-                  fontSize: 16,
-                }}
-              >
-                Montant investi
-              </span>
-
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 10,
-                  marginTop: 8,
-                }}
-              >
-                <strong
-                  style={{
-                    ...styles.summaryValue,
-                    fontSize: 30,
-                  }}
-                >
-                  {showInvestedAmounts
-                    ? formatUSD(
-                        totals.totalInvestedUSD
-                      )
-                    : "••••••"}
-                </strong>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setShowInvestedAmounts(
-                      (current) => !current
-                    )
-                  }
-                  aria-label={
-                    showInvestedAmounts
-                      ? "Masquer le montant investi"
-                      : "Afficher le montant investi"
-                  }
-                  title={
-                    showInvestedAmounts
-                      ? "Masquer le montant investi"
-                      : "Afficher le montant investi"
-                  }
-                  style={{
-                    border: "none",
-                    background: "transparent",
-                    color: "#efd08a",
-                    fontSize: 24,
-                    cursor: "pointer",
-                    padding: 4,
-                    lineHeight: 1,
-                  }}
-                >
-                 {showInvestedAmounts ? (
-  <svg
-    width="24"
-    height="24"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M3 3l18 18" />
-    <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
-    <path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c5 0 9 4 10 8a11.8 11.8 0 0 1-2.2 4.1" />
-    <path d="M6.6 6.6A11.5 11.5 0 0 0 2 12c1 4 5 8 10 8a10.7 10.7 0 0 0 5.4-1.4" />
-  </svg>
-) : (
-  <svg
-    width="24"
-    height="24"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
-    <circle cx="12" cy="12" r="3" />
-  </svg>
-)} 
-                </button>
-              </div>
-
-                            <div
-                style={{
-                  width: "100%",
-                  marginTop: 28,
-                  overflow: "hidden",
-                }}
-              >
-                <div
-                  className="ld-summary-chart-grid"
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: `repeat(${Math.min(
-                      Math.max(assets.length, 1),
-                      8
-                    )}, minmax(0, 1fr))`,
-                    gridAutoRows: "290px",
-                    alignItems: "end",
-                    gap: 10,
-                    width: "100%",
-                    minWidth: 0,
-                    height: "auto",
-                    padding: "0 4px",
-                  }}
-                >
-                  {[...assets]
-                    .map((asset) => {
-                      const value =
-                        Number(asset.quantity || 0) *
-                        Number(asset.buyPrice || 0);
-
-                      const percentage =
-                        totals.totalInvestedUSD > 0
-                          ? (value /
-                              totals.totalInvestedUSD) *
-                            100
-                          : 0;
-
-                      return {
-                        ...asset,
-                        chartValue: value,
-                        percentage,
-                      };
-                    })
-                    .filter(
-                      (asset) =>
-                        asset.chartValue > 0
-                    )
-                    .sort(
-                      (a, b) =>
-                        b.chartValue -
-                        a.chartValue
-                    )
-                    .map((asset) => {
-                      const barHeight =
-                        Math.max(
-                          8,
-                          Math.min(
-                            160,
-                            (asset.percentage /
-                              40) *
-                              160
-                          )
-                        );
-
-                      return (
-                        <div
-                          key={`invested-${asset.dbId}`}
-                          style={{
-                            height: "100%",
-                            display: "flex",
-                            flexDirection:
-                              "column",
-                            justifyContent:
-                              "flex-end",
-                            alignItems:
-                              "center",
-                            minWidth: 0,
-                          }}
-                        >
-                          <span
-                            style={{
-                              color: "#dce4de",
-                              fontSize: 12,
-                              fontWeight: 800,
-                              marginBottom: 6,
-                            }}
-                          >
-                            {asset.percentage.toFixed(
-                              1
-                            )}
-                            %
-                          </span>
-
-                          <div
-                            style={{
-                              width: 42,
-                              height: barHeight,
-                              minHeight: 8,
-                              borderRadius:
-                                "5px 5px 0 0",
-                              background:
-                                "linear-gradient(180deg, #f6b51b 0%, #b96d00 100%)",
-                              boxShadow:
-                                "0 0 14px rgba(246,181,27,.14)",
-                            }}
-                          />
-
-                          <div
-                            style={{
-                              width: "100%",
-                              borderTop:
-                                "1px solid rgba(76,89,81,.70)",
-                              paddingTop: 10,
-                              display: "flex",
-                              flexDirection:
-                                "column",
-                              alignItems:
-                                "center",
-                              gap: 5,
-                            }}
-                          >
-                            {asset.image ? (
-                              <img
-                                src={asset.image}
-                                alt=""
-                                style={{
-                                  width: 32,
-                                  height: 32,
-                                  borderRadius:
-                                    "50%",
-                                  objectFit:
-                                    "cover",
-                                }}
-                              />
-                            ) : (
-                              <div
-                                style={{
-                                  width: 32,
-                                  height: 32,
-                                  borderRadius:
-                                    "50%",
-                                  display:
-                                    "grid",
-                                  placeItems:
-                                    "center",
-                                  background:
-                                    "rgba(255,255,255,.06)",
-                                  color:
-                                    "#dce4de",
-                                  fontWeight:
-                                    800,
-                                }}
-                              >
-                                {String(
-                                  asset.symbol ||
-                                    asset.id ||
-                                    "?"
-                                )
-                                  .slice(0, 1)
-                                  .toUpperCase()}
-                              </div>
-                            )}
-
-                            <span
-                             style={{
-  color: "#aeb8b1",
-  fontSize: 10,
-  fontFamily: "Arial, sans-serif",
-  fontWeight: 700,
-  maxWidth: "100%",
-  overflow: "visible",
-  whiteSpace: "nowrap",
-}}
-                            >
-                              {String(
-                                asset.symbol ||
-                                  asset.id ||
-                                  ""
-                              ).toUpperCase()}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                </div>
-              </div>
-            </div>
-
             <div
-              style={{
-                ...styles.summaryCard,
-                gridColumn: "1 / -1",
-                padding: "24px 18px",
-              }}
+              style={styles.summaryCard}
             >
               <span
-                style={{
-                  ...styles.summaryLabel,
-                  color: "#4ade80",
-                  textAlign: "center",
-                  fontSize: 16,
-                }}
+                style={
+                  styles.summaryLabel
+                }
               >
                 Valeur actuelle
               </span>
 
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 10,
-                  marginTop: 8,
-                }}
+              <strong
+                style={
+                  styles.summaryValue
+                }
               >
-                <strong
-                  style={{
-                    ...styles.summaryValue,
-                    fontSize: 30,
-                  }}
-                >
-                  {showCurrentAmounts
-                    ? formatUSD(
-                        totals.totalValueUSD
-                      )
-                    : "••••••"}
-                </strong>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setShowCurrentAmounts(
-                      (current) => !current
+                {showAmounts
+                  ? formatUSD(
+                      totals.totalValueUSD
                     )
-                  }
-                  aria-label={
-                    showCurrentAmounts
-                      ? "Masquer la valeur actuelle"
-                      : "Afficher la valeur actuelle"
-                  }
-                  title={
-                    showCurrentAmounts
-                      ? "Masquer la valeur actuelle"
-                      : "Afficher la valeur actuelle"
-                  }
-                  style={{
-                    border: "none",
-                    background: "transparent",
-                    color: "#4ade80",
-                    fontSize: 24,
-                    cursor: "pointer",
-                    padding: 4,
-                    lineHeight: 1,
-                  }}
-                >
-                  {showCurrentAmounts ? (
-  <svg
-    width="24"
-    height="24"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M3 3l18 18" />
-    <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
-    <path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c5 0 9 4 10 8a11.8 11.8 0 0 1-2.2 4.1" />
-    <path d="M6.6 6.6A11.5 11.5 0 0 0 2 12c1 4 5 8 10 8a10.7 10.7 0 0 0 5.4-1.4" />
-  </svg>
-) : (
-  <svg
-    width="24"
-    height="24"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
-    <circle cx="12" cy="12" r="3" />
-  </svg>
-)}
-                </button>
-              </div>
+                  : "••••••"}
+              </strong>
 
-                            <div
-                style={{
-                  width: "100%",
-                  marginTop: 28,
-                  overflow: "hidden",
-                }}
+              <span
+                style={
+                  styles.summarySecondary
+                }
               >
-                <div
-                  className="ld-summary-chart-grid"
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: `repeat(${Math.min(
-                      Math.max(assets.length, 1),
-                      8
-                    )}, minmax(0, 1fr))`,
-                    gridAutoRows: "290px",
-                    alignItems: "end",
-                    gap: 10,
-                    width: "100%",
-                    minWidth: 0,
-                    height: "auto",
-                    padding: "0 4px",
-                  }}
-                >
-                  {[...assets]
-                    .map((asset) => {
-                      const value =
-                        Number(asset.quantity || 0) *
-                        Number(
-                          asset.currentPrice || 0
-                        );
-
-                      const percentage =
-                        totals.totalValueUSD > 0
-                          ? (value /
-                              totals.totalValueUSD) *
-                            100
-                          : 0;
-
-                      return {
-                        ...asset,
-                        chartValue: value,
-                        percentage,
-                      };
-                    })
-                    .filter(
-                      (asset) =>
-                        asset.chartValue > 0
+                {showAmounts
+                  ? formatEUR(
+                      totalValueEUR
                     )
-                    .sort(
-                      (a, b) =>
-                        b.chartValue -
-                        a.chartValue
-                    )
-                    .map((asset) => {
-                      const barHeight =
-                        Math.max(
-                          8,
-                          Math.min(
-                            160,
-                            (asset.percentage /
-                              40) *
-                              160
-                          )
-                        );
-
-                      return (
-                        <div
-                          key={`current-${asset.dbId}`}
-                          style={{
-                            height: "100%",
-                            display: "flex",
-                            flexDirection:
-                              "column",
-                            justifyContent:
-                              "flex-end",
-                            alignItems:
-                              "center",
-                            minWidth: 0,
-                          }}
-                        >
-                          <span
-                            style={{
-                              color: "#dce4de",
-                              fontSize: 12,
-                              fontWeight: 800,
-                              marginBottom: 6,
-                            }}
-                          >
-                            {asset.percentage.toFixed(
-                              1
-                            )}
-                            %
-                          </span>
-
-                          <div
-                            style={{
-                              width: 42,
-                              height: barHeight,
-                              minHeight: 8,
-                              borderRadius:
-                                "5px 5px 0 0",
-                              background:
-                                "linear-gradient(180deg, #22d66f 0%, #08783e 100%)",
-                              boxShadow:
-                                "0 0 14px rgba(34,214,111,.14)",
-                            }}
-                          />
-
-                          <div
-                            style={{
-                              width: "100%",
-                              borderTop:
-                                "1px solid rgba(76,89,81,.70)",
-                              paddingTop: 10,
-                              display: "flex",
-                              flexDirection:
-                                "column",
-                              alignItems:
-                                "center",
-                              gap: 5,
-                            }}
-                          >
-                            {asset.image ? (
-                              <img
-                                src={asset.image}
-                                alt=""
-                                style={{
-                                  width: 32,
-                                  height: 32,
-                                  borderRadius:
-                                    "50%",
-                                  objectFit:
-                                    "cover",
-                                }}
-                              />
-                            ) : (
-                              <div
-                                style={{
-                                  width: 32,
-                                  height: 32,
-                                  borderRadius:
-                                    "50%",
-                                  display:
-                                    "grid",
-                                  placeItems:
-                                    "center",
-                                  background:
-                                    "rgba(255,255,255,.06)",
-                                  color:
-                                    "#dce4de",
-                                  fontWeight:
-                                    800,
-                                }}
-                              >
-                                {String(
-                                  asset.symbol ||
-                                    asset.id ||
-                                    "?"
-                                )
-                                  .slice(0, 1)
-                                  .toUpperCase()}
-                              </div>
-                            )}
-
-                            <span
-                              style={{
-  color: "#aeb8b1",
-  fontSize: 10,
-  fontFamily: "Arial, sans-serif",
-  fontWeight: 700,
-  maxWidth: "100%",
-  overflow: "visible",
-  whiteSpace: "nowrap",
-}}
-                            >
-                              {String(
-                                asset.symbol ||
-                                  asset.id ||
-                                  ""
-                              ).toUpperCase()}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                </div>
-              </div>
+                  : "••••••"}
+              </span>
             </div>
 
-                             <div
+            <div
               style={styles.summaryCard}
             >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 8,
-                }}
+              <span
+                style={
+                  styles.summaryLabel
+                }
               >
-                <span
-                  style={styles.summaryLabel}
-                >
-                  Bénéfice total
-                </span>
+                Montant investi
+              </span>
 
-                <button
-                  type="button"
-                  onClick={() =>
-                    setShowProfitAmounts(
-                      (current) => !current
+              <strong
+                style={
+                  styles.summaryValue
+                }
+              >
+                {showAmounts
+                  ? formatUSD(
+                      totals.totalInvestedUSD
                     )
-                  }
-                  aria-label={
-                    showProfitAmounts
-                      ? "Masquer le bénéfice total"
-                      : "Afficher le bénéfice total"
-                  }
-                  title={
-                    showProfitAmounts
-                      ? "Masquer le bénéfice"
-                      : "Afficher le bénéfice"
-                  }
-                  style={{
-                    border: "none",
-                    background: "transparent",
-                    color: "#4ade80",
-                    padding: 0,
-                    display: "grid",
-                    placeItems: "center",
-                    cursor: "pointer",
-                    lineHeight: 1,
-                  }}
-                >
-                  {showProfitAmounts ? (
-                    <svg
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M3 3l18 18" />
-                      <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
-                      <path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c5 0 9 4 10 8a11.8 11.8 0 0 1-2.2 4.1" />
-                      <path d="M6.6 6.6A11.5 11.5 0 0 0 2 12c1 4 5 8 10 8a10.7 10.7 0 0 0 5.4-1.4" />
-                    </svg>
-                  ) : (
-                    <svg
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
-                      <circle
-                        cx="12"
-                        cy="12"
-                        r="3"
-                      />
-                    </svg>
-                  )}
-                </button>
-              </div>
+                  : "••••••"}
+              </strong>
+
+              <span
+                style={
+                  styles.summarySecondary
+                }
+              >
+                {showAmounts
+                  ? formatEUR(
+                      totalInvestedEUR
+                    )
+                  : "••••••"}
+              </span>
+            </div>
+
+            <div
+              style={styles.summaryCard}
+            >
+              <span
+                style={
+                  styles.summaryLabel
+                }
+              >
+                Bénéfice total
+              </span>
 
               <strong
                 style={{
@@ -2960,7 +2414,7 @@ export default function App() {
                       : "#fb7185",
                 }}
               >
-                {showProfitAmounts
+                {showAmounts
                   ? `${
                       profitUSD >= 0
                         ? "+"
@@ -2980,7 +2434,7 @@ export default function App() {
                       : "#fb7185",
                 }}
               >
-                {showProfitAmounts
+                {showAmounts
                   ? `${
                       profitEUR >= 0
                         ? "+"
@@ -2995,87 +2449,13 @@ export default function App() {
             <div
               style={styles.summaryCard}
             >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 8,
-                }}
+              <span
+                style={
+                  styles.summaryLabel
+                }
               >
-                <span
-                  style={styles.summaryLabel}
-                >
-                  Gains réalisés
-                </span>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setShowRealizedAmounts(
-                      (current) => !current
-                    )
-                  }
-                  aria-label={
-                    showRealizedAmounts
-                      ? "Masquer les gains réalisés"
-                      : "Afficher les gains réalisés"
-                  }
-                  title={
-                    showRealizedAmounts
-                      ? "Masquer les gains"
-                      : "Afficher les gains"
-                  }
-                  style={{
-                    border: "none",
-                    background: "transparent",
-                    color: "#4ade80",
-                    padding: 0,
-                    display: "grid",
-                    placeItems: "center",
-                    cursor: "pointer",
-                    lineHeight: 1,
-                  }}
-                >
-                  {showRealizedAmounts ? (
-                    <svg
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M3 3l18 18" />
-                      <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
-                      <path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c5 0 9 4 10 8a11.8 11.8 0 0 1-2.2 4.1" />
-                      <path d="M6.6 6.6A11.5 11.5 0 0 0 2 12c1 4 5 8 10 8a10.7 10.7 0 0 0 5.4-1.4" />
-                    </svg>
-                  ) : (
-                    <svg
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
-                      <circle
-                        cx="12"
-                        cy="12"
-                        r="3"
-                      />
-                    </svg>
-                  )}
-                </button>
-              </div>
+                Gains réalisés
+              </span>
 
               <strong
                 style={{
@@ -3088,7 +2468,8 @@ export default function App() {
               >
                 {showRealizedAmounts
                   ? `${
-                      realizedGainUSD >= 0
+                      realizedGainUSD >=
+                      0
                         ? "+"
                         : ""
                     }${formatUSD(
@@ -3108,7 +2489,8 @@ export default function App() {
               >
                 {showRealizedAmounts
                   ? `${
-                      realizedGainUSD >= 0
+                      realizedGainUSD >=
+                      0
                         ? "+"
                         : ""
                     }${formatEUR(
@@ -3120,12 +2502,56 @@ export default function App() {
 
               <div
                 style={{
-                  width: "100%",
                   display: "flex",
-                  justifyContent: "center",
-                  marginTop: 10,
+                  alignItems: "center",
+                  gap: 8,
+                  marginTop: 6,
                 }}
               >
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowRealizedAmounts(
+                      (current) =>
+                        !current
+                    )
+                  }
+                  aria-label={
+                    showRealizedAmounts
+                      ? "Masquer les gains réalisés"
+                      : "Afficher les gains réalisés"
+                  }
+                  title={
+                    showRealizedAmounts
+                      ? "Masquer les gains"
+                      : "Afficher les gains"
+                  }
+                  style={{
+                    width: 38,
+                    height: 38,
+                    display: "grid",
+                    placeItems:
+                      "center",
+                    flexShrink: 0,
+                    padding: 0,
+                    border:
+                      "1px solid rgba(88,200,62,.36)",
+                    borderRadius: 10,
+                    background:
+                      "#0b2117",
+                    color:
+                      "#b9e9b0",
+                    fontSize: 18,
+                    fontWeight: 900,
+                    cursor:
+                      "pointer",
+                  }}
+                >
+                  {showRealizedAmounts
+                    ? "◉"
+                    : "◌"}
+                </button>
+
                 <button
                   type="button"
                   onClick={() =>
@@ -3134,23 +2560,26 @@ export default function App() {
                     )
                   }
                   style={{
+                    flex: 1,
                     minHeight: 38,
                     padding:
-                      "8px 24px",
+                      "8px 12px",
                     border:
                       "1px solid rgba(213,167,75,.45)",
                     borderRadius: 10,
                     background:
                       "rgba(146,102,24,.10)",
-                    color: "#efd08a",
+                    color:
+                      "#efd08a",
                     fontWeight: 800,
-                    cursor: "pointer",
+                    cursor:
+                      "pointer",
                   }}
                 >
                   Historique
                 </button>
               </div>
-            </div>     
+            </div>
           </div>
         </section>
       </div>
@@ -3214,16 +2643,15 @@ export default function App() {
                 le moment.
               </div>
             ) : (
-                            <div
+              <div
                 style={{
                   width: "100%",
-                  overflowX: "hidden",
+                  overflowX: "auto",
                 }}
               >
                 <div
                   style={{
-                    width: "100%",
-                    minWidth: 0,
+                    minWidth: 610,
                   }}
                 >
                   <div
@@ -3773,6 +3201,36 @@ export default function App() {
               </button>
             </div>
 
+            {TEST_MODE_ENABLED &&
+              historyAsset?.isTest && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    clearTestData(
+                      historyAsset
+                    )
+                  }
+                  style={{
+                    width: "100%",
+                    marginBottom: 16,
+                    padding:
+                      "10px 14px",
+                    borderRadius: 10,
+                    border:
+                      "1px solid rgba(251, 113, 133, 0.45)",
+                    background:
+                      "rgba(251, 113, 133, 0.08)",
+                    color:
+                      "#fda4af",
+                    fontWeight: 700,
+                    cursor:
+                      "pointer",
+                  }}
+                >
+                  Effacer ce test
+                </button>
+              )}
+
             {isLoadingHistory ? (
               <div
                 style={
@@ -3798,7 +3256,84 @@ export default function App() {
               <div
                 style={styles.historyList}
               >
-                
+                {(() => {
+                  const realizedGainTotal =
+                    historyItems.reduce(
+                      (
+                        total,
+                        transaction
+                      ) => {
+                        if (
+                          transaction.type !==
+                          "sale"
+                        ) {
+                          return total;
+                        }
+
+                        const realizedGain =
+                          (Number(
+                            transaction.unit_price ||
+                              0
+                          ) -
+                            Number(
+                              transaction.average_price_before ||
+                                0
+                            )) *
+                          Number(
+                            transaction.quantity ||
+                              0
+                          );
+
+                        return (
+                          total +
+                          realizedGain
+                        );
+                      },
+                      0
+                    );
+
+                  return (
+                    <div
+                      style={
+                        styles.currentPositionBox
+                      }
+                    >
+                      <div
+                        style={
+                          styles.line
+                        }
+                      >
+                        <span
+                          style={
+                            styles.lineLabel
+                          }
+                        >
+                          Gains réalisés
+                          cumulés
+                        </span>
+
+                        <strong
+                          style={{
+                            ...styles.lineValue,
+                            color:
+                              realizedGainTotal >=
+                              0
+                                ? "#4ade80"
+                                : "#fb7185",
+                          }}
+                        >
+                          {realizedGainTotal >=
+                          0
+                            ? "+"
+                            : ""}
+                          {formatUSD(
+                            realizedGainTotal
+                          )}
+                        </strong>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {historyItems.map(
                   (
@@ -4048,9 +3583,7 @@ const responsiveCss = `
     .ld-form-grid { grid-template-columns: 1fr !important; }
     .ld-card-grid { grid-template-columns: 1fr !important; }
     .ld-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
-    .ld-summary-chart-grid {
-  grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
-}
+
     .ld-card-grid {
       width: 100% !important;
       min-width: 0 !important;
