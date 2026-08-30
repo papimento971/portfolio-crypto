@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabase";
 import ldLogo from "./assets/ld-logo.png";
 
-const TEST_MODE_ENABLED = false;
+const TEST_MODE_ENABLED = true;
 
 export default function App() {
   const [assets, setAssets] = useState([]);
@@ -14,12 +14,11 @@ export default function App() {
   });
 
   const [selectedToken, setSelectedToken] = useState(null);
- const [selectedNetworkOption, setSelectedNetworkOption] = useState(null);
+  const [selectedNetworkOption, setSelectedNetworkOption] = useState(null);
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [isTestPosition, setIsTestPosition] = useState(false);
-  
 
   const [editingAsset, setEditingAsset] = useState(null);
   const [transactionType, setTransactionType] = useState("purchase");
@@ -27,6 +26,7 @@ export default function App() {
     quantity: "",
     unitPrice: "",
   });
+
   const [isSavingTransaction, setIsSavingTransaction] = useState(false);
   const [transactionMessage, setTransactionMessage] = useState("");
 
@@ -36,10 +36,16 @@ export default function App() {
   const [historyMessage, setHistoryMessage] = useState("");
   const [undoingTransactionId, setUndoingTransactionId] = useState(null);
 
- const [usdToEur, setUsdToEur] = useState(0.92); 
+  const [usdToEur, setUsdToEur] = useState(0.92);
   const [realizedGainUSD, setRealizedGainUSD] = useState(0);
-const [realizedGainDetails, setRealizedGainDetails] = useState([]);
-const [showRealizedDetails, setShowRealizedDetails] = useState(false);
+  const [realizedGainDetails, setRealizedGainDetails] = useState([]);
+  const [showRealizedDetails, setShowRealizedDetails] = useState(false);
+  const [showProfitAmounts, setShowProfitAmounts] = useState(true);
+  const [showRealizedAmounts, setShowRealizedAmounts] = useState(true);
+  
+  const [showInvestedAmounts, setShowInvestedAmounts] = useState(true);
+  const [showCurrentAmounts, setShowCurrentAmounts] = useState(true);
+ 
   const [message, setMessage] = useState("");
 
   const [showAmounts, setShowAmounts] = useState(() => {
@@ -54,274 +60,232 @@ const [showRealizedDetails, setShowRealizedDetails] = useState(false);
     );
   }, [showAmounts]);
 
- useEffect(() => {
-  loadAssets();
-  loadRealizedGains();
-}, []);
+  useEffect(() => {
+    loadAssets();
+    loadRealizedGains();
+  }, []);
 
- async function loadAssets() {
-  const { data, error } = await supabase
-    .from("portfolios")
-    .select("*")
-    .order("id");
+  async function loadAssets() {
+    const { data, error } = await supabase
+      .from("portfolios")
+      .select("*")
+      .order("id");
 
-  if (error) {
-    console.error("Erreur chargement :", error);
-    setMessage("Impossible de charger le portefeuille.");
-    return;
+    if (error) {
+      console.error("Erreur chargement :", error);
+      setMessage("Impossible de charger le portefeuille.");
+      return;
+    }
+
+    setAssets((previousAssets) =>
+      data
+        .filter((item) => Number(item.quantite || 0) > 0)
+        .map((item) => {
+          const existingAsset = previousAssets.find(
+            (asset) =>
+              asset.dbId === item.id ||
+              asset.id === item.crypto
+          );
+
+          return {
+            dbId: item.id,
+            id: item.crypto,
+            name: existingAsset?.name || item.crypto,
+            symbol: existingAsset?.symbol || "",
+            image: existingAsset?.image || "",
+            quantity: Number(item.quantite || 0),
+            buyPrice: Number(item.prix_achat || 0),
+            isTest: Boolean(item.is_test),
+
+            network: item.network || null,
+            contractAddress: item.contract_address || null,
+            tokenType: item.token_type || null,
+
+            currentPrice: existingAsset?.currentPrice || 0,
+            priceChange24h: existingAsset?.priceChange24h || 0,
+          };
+        })
+    );
   }
 
-  setAssets((previousAssets) =>
-    data.map((item) => {
-      const existingAsset = previousAssets.find(
-        (asset) =>
-          asset.dbId === item.id ||
-          asset.id === item.crypto
+  async function loadRealizedGains() {
+    const { data, error } = await supabase
+      .from("portfolio_transactions")
+      .select(
+        "id, crypto, quantity, unit_price, average_price_before, created_at"
+      )
+      .eq("type", "sale")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Erreur chargement gains réalisés :", error);
+      return;
+    }
+
+    const sales = data || [];
+
+    const detailedSales = sales.map((transaction) => {
+      const quantity = Number(transaction.quantity || 0);
+      const salePrice = Number(transaction.unit_price || 0);
+      const averagePriceBefore = Number(
+        transaction.average_price_before || 0
       );
+
+      const gain =
+        (salePrice - averagePriceBefore) * quantity;
 
       return {
-        dbId: item.id,
-        id: item.crypto,
-        name: existingAsset?.name || item.crypto,
-        symbol: existingAsset?.symbol || "",
-        image: existingAsset?.image || "",
-        quantity: Number(item.quantite || 0),
-        buyPrice: Number(item.prix_achat || 0),
-        isTest: Boolean(item.is_test),
-        currentPrice: existingAsset?.currentPrice || 0,
-        priceChange24h: existingAsset?.priceChange24h || 0,
+        ...transaction,
+        quantity,
+        gain,
       };
-    })
-  );
-}
-async function loadAssets() {
-  const { data, error } = await supabase
-    .from("portfolios")
-    .select("*")
-    .order("id");
+    });
 
-  if (error) {
-    console.error("Erreur chargement :", error);
-    setMessage("Impossible de charger le portefeuille.");
-    return;
-  }
-
-  setAssets((previousAssets) =>
-    data.map((item) => {
-      const existingAsset = previousAssets.find(
-        (asset) =>
-          asset.dbId === item.id ||
-          asset.id === item.crypto
-      );
-
-      return {
-        dbId: item.id,
-        id: item.crypto,
-        name: existingAsset?.name || item.crypto,
-        symbol: existingAsset?.symbol || "",
-        image: existingAsset?.image || "",
-        quantity: Number(item.quantite || 0),
-        buyPrice: Number(item.prix_achat || 0),
-        isTest: Boolean(item.is_test),
-
-        network: item.network || null,
-        contractAddress: item.contract_address || null,
-        tokenType: item.token_type || null,
-
-        currentPrice: existingAsset?.currentPrice || 0,
-        priceChange24h: existingAsset?.priceChange24h || 0,
-      };
-    })
-  );
-}
-async function loadRealizedGains() {
-  const { data, error } = await supabase
-    .from("portfolio_transactions")
-    .select(
-      "id, crypto, quantity, unit_price, average_price_before, created_at"
-    )
-    .eq("type", "sale")
-    .eq("is_test", false)
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    console.error("Erreur chargement gains réalisés :", error);
-    return;
-  }
-
-  const sales = data || [];
-
-  const totalGain = sales.reduce((total, transaction) => {
-    const quantity = Number(transaction.quantity || 0);
-    const salePrice = Number(transaction.unit_price || 0);
-    const averagePriceBefore = Number(
-      transaction.average_price_before || 0
+    const totalGain = detailedSales.reduce(
+      (total, transaction) => total + transaction.gain,
+      0
     );
 
-    return total + (salePrice - averagePriceBefore) * quantity;
-  }, 0);
-
-  const detailsMap = new Map();
-
-  sales.forEach((transaction) => {
-    const quantity = Number(transaction.quantity || 0);
-    const salePrice = Number(transaction.unit_price || 0);
-    const averagePriceBefore = Number(
-      transaction.average_price_before || 0
-    );
-
-    const gain =
-      (salePrice - averagePriceBefore) * quantity;
-
-    const existing = detailsMap.get(transaction.crypto) || {
-      crypto: transaction.crypto,
-      gain: 0,
-      salesCount: 0,
-    };
-
-    existing.gain += gain;
-    existing.salesCount += 1;
-
-    detailsMap.set(transaction.crypto, existing);
-  });
-
-  setRealizedGainUSD(totalGain);
-
-  setRealizedGainDetails(
-    Array.from(detailsMap.values()).sort(
-      (a, b) => b.gain - a.gain
-    )
-  );
-}
- useEffect(() => {
-  const searchText = form.search.trim();
-
-  if (selectedToken && searchText === selectedToken.name) {
-    setSearchResults([]);
-    return;
+    setRealizedGainUSD(totalGain);
+    setRealizedGainDetails(detailedSales);
   }
 
-  if (searchText.length < 2) {
-    setSearchResults([]);
-    setIsSearching(false);
-    return;
-  }
+  useEffect(() => {
+    const searchText = form.search.trim();
 
-  const timeout = setTimeout(async () => {
-    setIsSearching(true);
+    if (selectedToken && searchText === selectedToken.name) {
+      setSearchResults([]);
+      return;
+    }
 
-    try {
-      const response = await fetch(
-        `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(
-          searchText
-        )}`
-      );
+    if (searchText.length < 2) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
 
-      if (!response.ok) {
-        throw new Error("Erreur de recherche CoinGecko");
-      }
+    const timeout = setTimeout(async () => {
+      setIsSearching(true);
 
-      const data = await response.json();
-
-      const [coinsListResponse, assetPlatformsResponse] = await Promise.all([
-        fetch(
-          "https://api.coingecko.com/api/v3/coins/list?include_platform=true"
-        ),
-        fetch(
-          "https://api.coingecko.com/api/v3/asset_platforms"
-        ),
-      ]);
-
-      const coinsList = coinsListResponse.ok
-        ? await coinsListResponse.json()
-        : [];
-
-      const assetPlatforms = assetPlatformsResponse.ok
-        ? await assetPlatformsResponse.json()
-        : [];
-
-      const coinsById = new Map(
-        coinsList.map((coin) => [coin.id, coin])
-      );
-
-      const results = (data.coins || []).slice(0, 20).map((coin) => {
-        const fullCoin = coinsById.get(coin.id);
-        const networkOptions = [];
-
-        const nativePlatform = assetPlatforms.find(
-          (platform) => platform?.native_coin_id === coin.id
+      try {
+        const response = await fetch(
+          `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(
+            searchText
+          )}`
         );
 
-        if (nativePlatform?.id) {
-          networkOptions.push({
-            network: nativePlatform.id,
-            contractAddress: null,
-            tokenType: "native",
-          });
+        if (!response.ok) {
+          throw new Error("Erreur de recherche CoinGecko");
         }
 
-        Object.entries(fullCoin?.platforms || {}).forEach(
-          ([network, contractAddress]) => {
-            if (
-              String(network || "").trim() === "" ||
-              String(contractAddress || "").trim() === ""
-            ) {
-              return;
-            }
+        const data = await response.json();
 
-            networkOptions.push({
-              network,
-              contractAddress,
-              tokenType: coin.name
-                ?.toLowerCase()
-                .includes("wrapped")
-                ? "wrapped"
-                : "contract",
-            });
-          }
+        const [
+          coinsListResponse,
+          assetPlatformsResponse,
+        ] = await Promise.all([
+          fetch(
+            "https://api.coingecko.com/api/v3/coins/list?include_platform=true"
+          ),
+          fetch(
+            "https://api.coingecko.com/api/v3/asset_platforms"
+          ),
+        ]);
+
+        const coinsList = coinsListResponse.ok
+          ? await coinsListResponse.json()
+          : [];
+
+        const assetPlatforms = assetPlatformsResponse.ok
+          ? await assetPlatformsResponse.json()
+          : [];
+
+        const coinsById = new Map(
+          coinsList.map((coin) => [coin.id, coin])
         );
 
-        return {
-          id: coin.id,
-          name: coin.name,
-          symbol: coin.symbol?.toUpperCase() || "",
-          image: coin.large || coin.thumb || "",
-          marketCapRank: coin.market_cap_rank,
-          networkOptions,
-        };
-      });
+        const results = (data.coins || [])
+          .slice(0, 20)
+          .map((coin) => {
+            const fullCoin = coinsById.get(coin.id);
+            const networkOptions = [];
 
-      setSearchResults(results);
-    } catch (error) {
-      console.error("Erreur recherche crypto :", error);
-      setSearchResults([]);
-    } finally {
-      setIsSearching(false);
-    }
-  }, 500);
+            const nativePlatform = assetPlatforms.find(
+              (platform) =>
+                platform?.native_coin_id === coin.id
+            );
 
-  return () => clearTimeout(timeout);
-}, [form.search, selectedToken]);
+            if (nativePlatform?.id) {
+              networkOptions.push({
+                network: nativePlatform.id,
+                contractAddress: null,
+                tokenType: "native",
+              });
+            }
 
-function selectToken(token) {
-  const networkOptions = token.networkOptions || [];
+            Object.entries(
+              fullCoin?.platforms || {}
+            ).forEach(([network, contractAddress]) => {
+              if (
+                String(network || "").trim() === "" ||
+                String(contractAddress || "").trim() === ""
+              ) {
+                return;
+              }
 
-  setSelectedToken(token);
+              networkOptions.push({
+                network,
+                contractAddress,
+                tokenType: coin.name
+                  ?.toLowerCase()
+                  .includes("wrapped")
+                  ? "wrapped"
+                  : "contract",
+              });
+            });
 
-  setSelectedNetworkOption(
-    networkOptions.length === 1
-      ? networkOptions[0]
-      : null
-  );
+            return {
+              id: coin.id,
+              name: coin.name,
+              symbol: coin.symbol?.toUpperCase() || "",
+              image: coin.large || coin.thumb || "",
+              marketCapRank: coin.market_cap_rank,
+              networkOptions,
+            };
+          });
 
-  setForm((previousForm) => ({
-    ...previousForm,
-    search: token.name,
-  }));
+        setSearchResults(results);
+      } catch (error) {
+        console.error("Erreur recherche crypto :", error);
+        setSearchResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 500);
 
-  setSearchResults([]);
-  setMessage("");
-}
+    return () => clearTimeout(timeout);
+  }, [form.search, selectedToken]);
+
+  function selectToken(token) {
+    const networkOptions = token.networkOptions || [];
+
+    setSelectedToken(token);
+
+    setSelectedNetworkOption(
+      networkOptions.length === 1
+        ? networkOptions[0]
+        : null
+    );
+
+    setForm((previousForm) => ({
+      ...previousForm,
+      search: token.name,
+    }));
+
+    setSearchResults([]);
+    setMessage("");
+  }
+
   function resetForm() {
     setForm({
       search: "",
@@ -329,42 +293,44 @@ function selectToken(token) {
       buyPrice: "",
     });
 
-   setSelectedToken(null);
-setSearchResults([]);
-setIsTestPosition(false); 
+    setSelectedToken(null);
+    setSearchResults([]);
+    setIsTestPosition(false);
   }
 
- async function insertTransaction({
-  portfolioId,
-  crypto,
-  type,
-  quantity,
-  unitPrice,
-  quantityBefore,
-  averagePriceBefore,
-  quantityAfter,
-  averagePriceAfter,
-  isTest = false,
-}) {
-  const { error } = await supabase.from("portfolio_transactions").insert([
-    {
-      portfolio_id: portfolioId,
-      crypto,
-      type,
-      quantity,
-      unit_price: unitPrice,
-      quantity_before: quantityBefore,
-      average_price_before: averagePriceBefore,
-      quantity_after: quantityAfter,
-      average_price_after: averagePriceAfter,
-      is_test: isTest,
-    },
-  ]);
+  async function insertTransaction({
+    portfolioId,
+    crypto,
+    type,
+    quantity,
+    unitPrice,
+    quantityBefore,
+    averagePriceBefore,
+    quantityAfter,
+    averagePriceAfter,
+    isTest = false,
+  }) {
+    const { error } = await supabase
+      .from("portfolio_transactions")
+      .insert([
+        {
+          portfolio_id: portfolioId,
+          crypto,
+          type,
+          quantity,
+          unit_price: unitPrice,
+          quantity_before: quantityBefore,
+          average_price_before: averagePriceBefore,
+          quantity_after: quantityAfter,
+          average_price_after: averagePriceAfter,
+          is_test: isTest,
+        },
+      ]);
 
-  if (error) {
-    throw error;
+    if (error) {
+      throw error;
+    }
   }
-} 
 
   useEffect(() => {
     async function fetchFX() {
@@ -402,147 +368,173 @@ setIsTestPosition(false);
 
     let isCancelled = false;
 
-   async function fetchPricesAndMetadata() {
-  try {
-    const uniqueIds = [...new Set(assets.map((asset) => asset.id))]
-      .filter(Boolean)
-      .join(",");
+    async function fetchPricesAndMetadata() {
+      try {
+        const uniqueIds = [
+          ...new Set(assets.map((asset) => asset.id)),
+        ]
+          .filter(Boolean)
+          .join(",");
 
-    if (!uniqueIds) {
-      return;
-    }
-
-    const response = await fetch(
-      `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${uniqueIds}&price_change_percentage=24h`
-    );
-
-    if (!response.ok) {
-      throw new Error("Erreur prix CoinGecko");
-    }
-
-    const data = await response.json();
-
-    if (isCancelled) {
-      return;
-    }
-
-    const coinMap = new Map(
-      data.map((coin) => [
-        coin.id,
-        {
-          name: coin.name,
-          symbol: coin.symbol?.toUpperCase() || "",
-          image: coin.image || "",
-          currentPrice:
-            coin.current_price !== null &&
-            coin.current_price !== undefined &&
-            Number(coin.current_price) > 0
-              ? Number(coin.current_price)
-              : null,
-          priceChange24h:
-            coin.price_change_percentage_24h !== null &&
-            coin.price_change_percentage_24h !== undefined
-              ? Number(coin.price_change_percentage_24h)
-              : null,
-        },
-      ])
-    );
-
-    const dexChainAliases = {
-      "binance-smart-chain": "bsc",
-      ethereum: "ethereum",
-      "polygon-pos": "polygon",
-      solana: "solana",
-      base: "base",
-      "arbitrum-one": "arbitrum",
-      "optimistic-ethereum": "optimism",
-      avalanche: "avalanche",
-    };
-
-    const updatedAssets = await Promise.all(
-      assets.map(async (asset) => {
-        const coinData = coinMap.get(asset.id);
-
-        let currentPrice =
-          coinData?.currentPrice !== null &&
-          coinData?.currentPrice !== undefined
-            ? coinData.currentPrice
-            : asset.currentPrice;
-
-        let priceChange24h =
-          coinData?.priceChange24h !== null &&
-          coinData?.priceChange24h !== undefined
-            ? coinData.priceChange24h
-            : asset.priceChange24h;
-
-        if (
-          (!coinData || coinData.currentPrice === null) &&
-          asset.contractAddress
-        ) {
-          try {
-            const dexResponse = await fetch(
-              `https://api.dexscreener.com/latest/dex/tokens/${asset.contractAddress}`
-            );
-
-            if (dexResponse.ok) {
-              const dexData = await dexResponse.json();
-
-              const dexChainId =
-                dexChainAliases[asset.network] || asset.network;
-
-              const validPairs = (dexData?.pairs || [])
-                .filter(
-                  (pair) =>
-                    pair?.chainId === dexChainId &&
-                    Number(pair?.priceUsd) > 0
-                )
-                .sort(
-                  (a, b) =>
-                    Number(b?.liquidity?.usd || 0) -
-                    Number(a?.liquidity?.usd || 0)
-                );
-
-              const bestPair = validPairs[0];
-
-              if (bestPair) {
-                currentPrice = Number(bestPair.priceUsd);
-
-                if (
-                  bestPair?.priceChange?.h24 !== null &&
-                  bestPair?.priceChange?.h24 !== undefined
-                ) {
-                  priceChange24h = Number(bestPair.priceChange.h24);
-                }
-              }
-            }
-          } catch (dexError) {
-            console.error(
-              `Erreur DEX Screener pour ${asset.id} :`,
-              dexError
-            );
-          }
+        if (!uniqueIds) {
+          return;
         }
 
-        return {
-          ...asset,
-          ...(coinData || {}),
-          currentPrice,
-          priceChange24h,
-        };
-      })
-    );
+        const response = await fetch(
+          `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${uniqueIds}&price_change_percentage=24h`
+        );
 
-    if (!isCancelled) {
-      setAssets(updatedAssets);
+        if (!response.ok) {
+          throw new Error("Erreur prix CoinGecko");
+        }
+
+        const data = await response.json();
+
+        if (isCancelled) {
+          return;
+        }
+
+        const coinMap = new Map(
+          data.map((coin) => [
+            coin.id,
+            {
+              name: coin.name,
+              symbol:
+                coin.symbol?.toUpperCase() || "",
+              image: coin.image || "",
+              currentPrice:
+                coin.current_price !== null &&
+                coin.current_price !== undefined &&
+                Number(coin.current_price) > 0
+                  ? Number(coin.current_price)
+                  : null,
+              priceChange24h:
+                coin.price_change_percentage_24h !==
+                  null &&
+                coin.price_change_percentage_24h !==
+                  undefined
+                  ? Number(
+                      coin.price_change_percentage_24h
+                    )
+                  : null,
+            },
+          ])
+        );
+
+        const dexChainAliases = {
+          "binance-smart-chain": "bsc",
+          ethereum: "ethereum",
+          "polygon-pos": "polygon",
+          solana: "solana",
+          base: "base",
+          "arbitrum-one": "arbitrum",
+          "optimistic-ethereum": "optimism",
+          avalanche: "avalanche",
+        };
+
+        const updatedAssets = await Promise.all(
+          assets.map(async (asset) => {
+            const coinData = coinMap.get(asset.id);
+
+            let currentPrice =
+              coinData?.currentPrice !== null &&
+              coinData?.currentPrice !== undefined
+                ? coinData.currentPrice
+                : asset.currentPrice;
+
+            let priceChange24h =
+              coinData?.priceChange24h !== null &&
+              coinData?.priceChange24h !== undefined
+                ? coinData.priceChange24h
+                : asset.priceChange24h;
+
+            if (
+              (!coinData ||
+                coinData.currentPrice === null) &&
+              asset.contractAddress
+            ) {
+              try {
+                const dexResponse = await fetch(
+                  `https://api.dexscreener.com/latest/dex/tokens/${asset.contractAddress}`
+                );
+
+                if (dexResponse.ok) {
+                  const dexData =
+                    await dexResponse.json();
+
+                  const dexChainId =
+                    dexChainAliases[asset.network] ||
+                    asset.network;
+
+                  const validPairs = (
+                    dexData?.pairs || []
+                  )
+                    .filter(
+                      (pair) =>
+                        pair?.chainId ===
+                          dexChainId &&
+                        Number(pair?.priceUsd) > 0
+                    )
+                    .sort(
+                      (a, b) =>
+                        Number(
+                          b?.liquidity?.usd || 0
+                        ) -
+                        Number(
+                          a?.liquidity?.usd || 0
+                        )
+                    );
+
+                  const bestPair = validPairs[0];
+
+                  if (bestPair) {
+                    currentPrice = Number(
+                      bestPair.priceUsd
+                    );
+
+                    if (
+                      bestPair?.priceChange?.h24 !==
+                        null &&
+                      bestPair?.priceChange?.h24 !==
+                        undefined
+                    ) {
+                      priceChange24h = Number(
+                        bestPair.priceChange.h24
+                      );
+                    }
+                  }
+                }
+              } catch (dexError) {
+                console.error(
+                  `Erreur DEX Screener pour ${asset.id} :`,
+                  dexError
+                );
+              }
+            }
+
+            return {
+              ...asset,
+              ...(coinData || {}),
+              currentPrice,
+              priceChange24h,
+            };
+          })
+        );
+
+        if (!isCancelled) {
+          setAssets(updatedAssets);
+        }
+      } catch (error) {
+        console.error("Erreur prix crypto :", error);
+      }
     }
-  } catch (error) {
-    console.error("Erreur prix crypto :", error);
-  }
-} 
 
     fetchPricesAndMetadata();
 
-    const interval = setInterval(fetchPricesAndMetadata, 30000);
+    const interval = setInterval(
+      fetchPricesAndMetadata,
+      30000
+    );
 
     return () => {
       isCancelled = true;
@@ -555,17 +547,29 @@ setIsTestPosition(false);
     const buyPrice = Number(form.buyPrice);
 
     if (!selectedToken) {
-      setMessage("Sélectionne une crypto dans la liste.");
+      setMessage(
+        "Sélectionne une crypto dans la liste."
+      );
       return;
     }
 
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      setMessage("Entre une quantité supérieure à zéro.");
+    if (
+      !Number.isFinite(quantity) ||
+      quantity <= 0
+    ) {
+      setMessage(
+        "Entre une quantité supérieure à zéro."
+      );
       return;
     }
 
-    if (!Number.isFinite(buyPrice) || buyPrice <= 0) {
-      setMessage("Entre un prix d’achat supérieur à zéro.");
+    if (
+      !Number.isFinite(buyPrice) ||
+      buyPrice <= 0
+    ) {
+      setMessage(
+        "Entre un prix d’achat supérieur à zéro."
+      );
       return;
     }
 
@@ -573,20 +577,27 @@ setIsTestPosition(false);
     setMessage("");
 
     try {
-     const existingAsset = assets.find(
-  (asset) =>
-    asset.id === selectedToken.id &&
-    Boolean(asset.isTest) === Boolean(isTestPosition)
-); 
+      const existingAsset = assets.find(
+        (asset) =>
+          asset.id === selectedToken.id &&
+          Boolean(asset.isTest) ===
+            Boolean(isTestPosition)
+      );
 
       if (existingAsset) {
-        const quantityBefore = existingAsset.quantity;
-        const averagePriceBefore = existingAsset.buyPrice;
-        const oldInvestment = quantityBefore * averagePriceBefore;
-        const newInvestment = quantity * buyPrice;
-        const quantityAfter = quantityBefore + quantity;
+        const quantityBefore =
+          existingAsset.quantity;
+        const averagePriceBefore =
+          existingAsset.buyPrice;
+        const oldInvestment =
+          quantityBefore * averagePriceBefore;
+        const newInvestment =
+          quantity * buyPrice;
+        const quantityAfter =
+          quantityBefore + quantity;
         const averagePriceAfter =
-          (oldInvestment + newInvestment) / quantityAfter;
+          (oldInvestment + newInvestment) /
+          quantityAfter;
 
         const { error } = await supabase
           .from("portfolios")
@@ -598,61 +609,73 @@ setIsTestPosition(false);
 
         if (error) throw error;
 
-      await insertTransaction({
-  portfolioId: existingAsset.dbId,
-  crypto: selectedToken.id,
-  type: "purchase",
-  quantity,
-  unitPrice: buyPrice,
-  quantityBefore,
-  averagePriceBefore,
-  quantityAfter,
-  averagePriceAfter,
-  isTest: Boolean(existingAsset.isTest),
-});  
+        await insertTransaction({
+          portfolioId: existingAsset.dbId,
+          crypto: selectedToken.id,
+          type: "purchase",
+          quantity,
+          unitPrice: buyPrice,
+          quantityBefore,
+          averagePriceBefore,
+          quantityAfter,
+          averagePriceAfter,
+          isTest: Boolean(existingAsset.isTest),
+        });
 
         setMessage(
           `${selectedToken.name} a été mis à jour avec le nouveau prix moyen.`
         );
       } else {
-       const { data, error } = await supabase
-  .from("portfolios")
-  .insert([
- {
-  crypto: selectedToken.id,
-  quantite: quantity,
-  prix_achat: buyPrice,
-  is_test: isTestPosition,
-network: selectedNetworkOption?.network || null,
-contract_address: selectedNetworkOption?.contractAddress || null,
-token_type: selectedNetworkOption?.tokenType || null,  
-},
-])
-  .select("id")
-  .single(); 
+        const { data, error } = await supabase
+          .from("portfolios")
+          .insert([
+            {
+              crypto: selectedToken.id,
+              quantite: quantity,
+              prix_achat: buyPrice,
+              is_test: isTestPosition,
+              network:
+                selectedNetworkOption?.network ||
+                null,
+              contract_address:
+                selectedNetworkOption?.contractAddress ||
+                null,
+              token_type:
+                selectedNetworkOption?.tokenType ||
+                null,
+            },
+          ])
+          .select("id")
+          .single();
 
         if (error) throw error;
 
-      await insertTransaction({
-  portfolioId: data.id,
-  crypto: selectedToken.id,
-  type: "purchase",
-  quantity,
-  unitPrice: buyPrice,
-  quantityBefore: 0,
-  averagePriceBefore: 0,
-  quantityAfter: quantity,
-  averagePriceAfter: buyPrice,
-  isTest: isTestPosition,
-});
+        await insertTransaction({
+          portfolioId: data.id,
+          crypto: selectedToken.id,
+          type: "purchase",
+          quantity,
+          unitPrice: buyPrice,
+          quantityBefore: 0,
+          averagePriceBefore: 0,
+          quantityAfter: quantity,
+          averagePriceAfter: buyPrice,
+          isTest: isTestPosition,
+        });
 
-        setMessage(`${selectedToken.name} a été ajouté au portefeuille.`);
+        setMessage(
+          `${selectedToken.name} a été ajouté au portefeuille.`
+        );
       }
 
       resetForm();
       await loadAssets();
     } catch (error) {
-      console.error("Erreur ajout / mise à jour :", error);
+      console.error(
+        "Erreur ajout / mise à jour :",
+        error
+      );
+
       setMessage(
         `Enregistrement impossible : ${
           error?.message || "erreur inconnue"
@@ -663,223 +686,233 @@ token_type: selectedNetworkOption?.tokenType || null,
     }
   }
 
-  function openTransactionForm(asset, type = "purchase") {
+  function openTransactionForm(
+    asset,
+    type = "purchase"
+  ) {
     setEditingAsset(asset);
     setTransactionType(type);
-    setTransactionForm({ quantity: "", unitPrice: "" });
+
+    setTransactionForm({
+      quantity: "",
+      unitPrice: "",
+    });
+
     setTransactionMessage("");
     setMessage("");
   }
 
- async function clearTestData(asset) {
-  if (!asset?.isTest) {
-    return;
+  function closeTransactionForm() {
+    setEditingAsset(null);
+    setTransactionType("purchase");
+
+    setTransactionForm({
+      quantity: "",
+      unitPrice: "",
+    });
+
+    setTransactionMessage("");
+    setIsSavingTransaction(false);
   }
 
-  const confirmed = window.confirm(
-    `Effacer uniquement les données de test de ${asset.name} ? Les données réelles ne seront pas touchées.`
-  );
-
-  if (!confirmed) {
-    return;
-  }
-
-  setHistoryMessage("");
-
-  try {
-    const { error: transactionsError } = await supabase
-      .from("portfolio_transactions")
-      .delete()
-      .eq("portfolio_id", asset.dbId)
-      .eq("is_test", true);
-
-    if (transactionsError) {
-      throw transactionsError;
+  async function saveTransaction() {
+    if (
+      !editingAsset ||
+      isSavingTransaction
+    ) {
+      return;
     }
 
-    const { error: portfolioError } = await supabase
-      .from("portfolios")
-      .delete()
-      .eq("id", asset.dbId)
-      .eq("is_test", true);
-
-    if (portfolioError) {
-      throw portfolioError;
-    }
-
-    closeHistory();
-
-    setMessage(
-      `Les données de test de ${asset.name} ont été supprimées.`
+    const quantity = Number(
+      transactionForm.quantity
     );
 
-    await loadAssets();
-  } catch (error) {
-    console.error("Erreur suppression test :", error);
-    setHistoryMessage(
-      `Suppression impossible : ${error?.message || "erreur inconnue"}`
+    const unitPrice = Number(
+      transactionForm.unitPrice
     );
-  }
-}
 
-function closeTransactionForm() {
-  setEditingAsset(null);
-  setTransactionType("purchase");
-  setTransactionForm({ quantity: "", unitPrice: "" });
-  setTransactionMessage("");
-  setIsSavingTransaction(false);
-}
- async function saveTransaction() {
-  if (!editingAsset || isSavingTransaction) return;
-
-  const quantity = Number(transactionForm.quantity);
-  const unitPrice = Number(transactionForm.unitPrice);
-  const quantityBefore = Number(editingAsset.quantity);
-  const averagePriceBefore = Number(editingAsset.buyPrice);
-  const portfolioId = editingAsset.dbId;
-
-  if (!Number.isFinite(quantity) || quantity <= 0) {
-    setTransactionMessage("Entre une quantité supérieure à zéro.");
-    return;
-  }
-
-  if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
-    setTransactionMessage(
-      transactionType === "purchase"
-        ? "Entre le prix du nouvel achat."
-        : "Entre le prix de vente."
+    const quantityBefore = Number(
+      editingAsset.quantity
     );
-    return;
-  }
 
-  if (transactionType === "sale" && quantity > quantityBefore) {
-    setTransactionMessage(
-      `La quantité vendue ne peut pas dépasser ${formatNumber(
-        quantityBefore
-      )}.`
+    const averagePriceBefore = Number(
+      editingAsset.buyPrice
     );
-    return;
-  }
 
-  setIsSavingTransaction(true);
-  setTransactionMessage("");
+    const portfolioId = editingAsset.dbId;
 
-  try {
-    if (transactionType === "purchase") {
-      const quantityAfter = quantityBefore + quantity;
-      const averagePriceAfter =
-        (quantityBefore * averagePriceBefore + quantity * unitPrice) /
-        quantityAfter;
-
-      const { error } = await supabase
-        .from("portfolios")
-        .update({
-          quantite: quantityAfter,
-          prix_achat: averagePriceAfter,
-        })
-        .eq("id", portfolioId);
-
-      if (error) throw error;
-
-      await insertTransaction({
-        portfolioId,
-        crypto: editingAsset.id,
-        type: "purchase",
-        quantity,
-        unitPrice,
-        quantityBefore,
-        averagePriceBefore,
-        quantityAfter,
-        averagePriceAfter,
-      });
-
-      setMessage(
-        `Nouvel achat enregistré pour ${editingAsset.name}. Prix moyen recalculé.`
+    if (
+      !Number.isFinite(quantity) ||
+      quantity <= 0
+    ) {
+      setTransactionMessage(
+        "Entre une quantité supérieure à zéro."
       );
-    } else {
-      const quantityAfter = quantityBefore - quantity;
-      const averagePriceAfter =
-        quantityAfter > 0 ? averagePriceBefore : 0;
-
-    if (quantityAfter === 0) {
-  const confirmed = window.confirm(
-    `Cette vente clôture entièrement ${editingAsset.name}. La position sera retirée du portefeuille, mais son historique et ses gains réalisés seront conservés. Continuer ?`
-  );
-
-  if (!confirmed) {
-    setIsSavingTransaction(false);
-    return;
-  }
-
-  const { error } = await supabase
-    .from("portfolios")
-    .update({
-      quantite: 0,
-      prix_achat: 0,
-    })
-    .eq("id", portfolioId);
-
-  if (error) throw error;
-
- await insertTransaction({
-  portfolioId,
-  crypto: editingAsset.id,
-  type: "sale",
-  quantity,
-  unitPrice,
-  quantityBefore,
-  averagePriceBefore,
-  quantityAfter: 0,
-  averagePriceAfter: 0,
-  isTest: Boolean(editingAsset.isTest),
-}); 
-
-  setMessage(
-    `${editingAsset.name} a été entièrement vendu. La position est clôturée et son historique est conservé.`
-  );
-} else {
-  const { error } = await supabase
-    .from("portfolios")
-    .update({
-      quantite: quantityAfter,
-    })
-    .eq("id", portfolioId);
-
-  if (error) throw error;
-
-  await insertTransaction({
-  portfolioId,
-  crypto: editingAsset.id,
-  type: "sale",
-  quantity,
-  unitPrice,
-  quantityBefore,
-  averagePriceBefore,
-  quantityAfter,
-  averagePriceAfter,
-  isTest: Boolean(editingAsset.isTest),
-});
-
-  setMessage(
-    `Vente partielle enregistrée pour ${editingAsset.name}. Le prix moyen restant est inchangé.`
-  );
-}  
+      return;
     }
 
-    closeTransactionForm();
-    await loadAssets();   
-await loadRealizedGains();
-  } catch (error) {
-    console.error("Erreur transaction :", error);
-    setTransactionMessage(
-      `Enregistrement impossible : ${
-        error?.message || "erreur inconnue"
-      }`
-    );
-  } finally {
-    setIsSavingTransaction(false);
+    if (
+      !Number.isFinite(unitPrice) ||
+      unitPrice <= 0
+    ) {
+      setTransactionMessage(
+        transactionType === "purchase"
+          ? "Entre le prix du nouvel achat."
+          : "Entre le prix de vente."
+      );
+      return;
+    }
+
+    if (
+      transactionType === "sale" &&
+      quantity > quantityBefore
+    ) {
+      setTransactionMessage(
+        `La quantité vendue ne peut pas dépasser ${formatNumber(
+          quantityBefore
+        )}.`
+      );
+
+      return;
+    }
+
+    setIsSavingTransaction(true);
+    setTransactionMessage("");
+
+    try {
+      if (transactionType === "purchase") {
+        const quantityAfter =
+          quantityBefore + quantity;
+
+        const averagePriceAfter =
+          (quantityBefore *
+            averagePriceBefore +
+            quantity * unitPrice) /
+          quantityAfter;
+
+        const { error } = await supabase
+          .from("portfolios")
+          .update({
+            quantite: quantityAfter,
+            prix_achat: averagePriceAfter,
+          })
+          .eq("id", portfolioId);
+
+        if (error) throw error;
+
+        await insertTransaction({
+          portfolioId,
+          crypto: editingAsset.id,
+          type: "purchase",
+          quantity,
+          unitPrice,
+          quantityBefore,
+          averagePriceBefore,
+          quantityAfter,
+          averagePriceAfter,
+          isTest: Boolean(editingAsset.isTest),
+        });
+
+        setMessage(
+          `Nouvel achat enregistré pour ${editingAsset.name}. Prix moyen recalculé.`
+        );
+      } else {
+        const quantityAfter =
+          quantityBefore - quantity;
+
+        const averagePriceAfter =
+          quantityAfter > 0
+            ? averagePriceBefore
+            : 0;
+
+        if (quantityAfter === 0) {
+          const confirmed = window.confirm(
+            `Cette vente clôture entièrement ${editingAsset.name}. La position sera retirée du portefeuille, mais son historique et ses gains réalisés seront conservés. Continuer ?`
+          );
+
+          if (!confirmed) {
+            setIsSavingTransaction(false);
+            return;
+          }
+
+          const { error } = await supabase
+            .from("portfolios")
+            .update({
+              quantite: 0,
+              prix_achat: 0,
+            })
+            .eq("id", portfolioId);
+
+          if (error) throw error;
+
+          await insertTransaction({
+            portfolioId,
+            crypto: editingAsset.id,
+            type: "sale",
+            quantity,
+            unitPrice,
+            quantityBefore,
+            averagePriceBefore,
+            quantityAfter: 0,
+            averagePriceAfter: 0,
+            isTest: Boolean(
+              editingAsset.isTest
+            ),
+          });
+
+          setMessage(
+            `${editingAsset.name} a été entièrement vendu. La position est clôturée et son historique est conservé.`
+          );
+        } else {
+          const { error } = await supabase
+            .from("portfolios")
+            .update({
+              quantite: quantityAfter,
+            })
+            .eq("id", portfolioId);
+
+          if (error) throw error;
+
+          await insertTransaction({
+            portfolioId,
+            crypto: editingAsset.id,
+            type: "sale",
+            quantity,
+            unitPrice,
+            quantityBefore,
+            averagePriceBefore,
+            quantityAfter,
+            averagePriceAfter,
+            isTest: Boolean(
+              editingAsset.isTest
+            ),
+          });
+
+          setMessage(
+            `Vente partielle enregistrée pour ${editingAsset.name}. Le prix moyen restant est inchangé.`
+          );
+        }
+      }
+
+      closeTransactionForm();
+
+      await loadAssets();
+      await loadRealizedGains();
+    } catch (error) {
+      console.error(
+        "Erreur transaction :",
+        error
+      );
+
+      setTransactionMessage(
+        `Enregistrement impossible : ${
+          error?.message || "erreur inconnue"
+        }`
+      );
+    } finally {
+      setIsSavingTransaction(false);
+    }
   }
-} 
 
   async function openHistory(asset) {
     setHistoryAsset(asset);
@@ -891,10 +924,16 @@ await loadRealizedGains();
       .from("portfolio_transactions")
       .select("*")
       .eq("portfolio_id", asset.dbId)
-      .order("created_at", { ascending: false });
+      .order("created_at", {
+        ascending: false,
+      });
 
     if (error) {
-      console.error("Erreur historique :", error);
+      console.error(
+        "Erreur historique :",
+        error
+      );
+
       setHistoryMessage(
         `Impossible de charger l’historique : ${error.message}`
       );
@@ -913,23 +952,37 @@ await loadRealizedGains();
   }
 
   async function undoTransaction(transaction) {
-    if (!historyAsset || undoingTransactionId) return;
+    if (
+      !historyAsset ||
+      undoingTransactionId
+    ) {
+      return;
+    }
 
     const confirmed = window.confirm(
       `Annuler cette ${
-        transaction.type === "purchase" ? "transaction d’achat" : "vente"
+        transaction.type === "purchase"
+          ? "transaction d’achat"
+          : "vente"
       } ? La position reviendra exactement à son état précédent.`
     );
 
     if (!confirmed) return;
 
-    setUndoingTransactionId(transaction.id);
+    setUndoingTransactionId(
+      transaction.id
+    );
+
     setHistoryMessage("");
 
     try {
-      const quantityBefore = Number(transaction.quantity_before || 0);
+      const quantityBefore = Number(
+        transaction.quantity_before || 0
+      );
+
       const averagePriceBefore = Number(
-        transaction.average_price_before || 0
+        transaction.average_price_before ||
+          0
       );
 
       if (quantityBefore <= 0) {
@@ -939,39 +992,63 @@ await loadRealizedGains();
           .eq("id", historyAsset.dbId);
 
         if (error) throw error;
+
         closeHistory();
+
         setMessage(
           `${historyAsset.name} a été retiré : son achat initial a été annulé.`
         );
       } else {
-        const { error: updateError } = await supabase
+        const {
+          error: updateError,
+        } = await supabase
           .from("portfolios")
           .update({
             quantite: quantityBefore,
-            prix_achat: averagePriceBefore,
+            prix_achat:
+              averagePriceBefore,
           })
           .eq("id", historyAsset.dbId);
 
-        if (updateError) throw updateError;
+        if (updateError) {
+          throw updateError;
+        }
 
-        const { error: deleteError } = await supabase
+        const {
+          error: deleteError,
+        } = await supabase
           .from("portfolio_transactions")
           .delete()
           .eq("id", transaction.id);
 
-        if (deleteError) throw deleteError;
+        if (deleteError) {
+          throw deleteError;
+        }
 
         setHistoryItems((items) =>
-          items.filter((item) => item.id !== transaction.id)
+          items.filter(
+            (item) =>
+              item.id !== transaction.id
+          )
         );
-        setMessage("Transaction annulée. La position a été restaurée.");
+
+        setMessage(
+          "Transaction annulée. La position a été restaurée."
+        );
       }
 
       await loadAssets();
+      await loadRealizedGains();
     } catch (error) {
-      console.error("Erreur annulation transaction :", error);
+      console.error(
+        "Erreur annulation transaction :",
+        error
+      );
+
       setHistoryMessage(
-        `Annulation impossible : ${error?.message || "erreur inconnue"}`
+        `Annulation impossible : ${
+          error?.message || "erreur inconnue"
+        }`
       );
     } finally {
       setUndoingTransactionId(null);
@@ -979,6 +1056,18 @@ await loadRealizedGains();
   }
 
   async function deleteAsset(asset) {
+    if (
+      Number(asset.quantity || 0) <= 0
+    ) {
+      setMessage(
+        `${asset.name} est une position clôturée. Son historique et ses gains réalisés sont conservés.`
+      );
+
+      await loadAssets();
+      await loadRealizedGains();
+      return;
+    }
+
     const confirmed = window.confirm(
       `Supprimer ${asset.name} du portefeuille ?`
     );
@@ -987,32 +1076,66 @@ await loadRealizedGains();
       return;
     }
 
-    const { error } = await supabase
-      .from("portfolios")
-      .delete()
-      .eq("id", asset.dbId);
+    try {
+      if (asset.isTest) {
+        const { error: transactionsError } = await supabase
+          .from("portfolio_transactions")
+          .delete()
+          .eq("portfolio_id", asset.dbId)
+          .eq("is_test", true);
 
-    if (error) {
-      console.error("Erreur suppression :", error);
-      setMessage("Erreur lors de la suppression.");
+        if (transactionsError) {
+          throw transactionsError;
+        }
+      }
+
+      const { error } = await supabase
+        .from("portfolios")
+        .delete()
+        .eq("id", asset.dbId);
+
+      if (error) {
+        throw error;
+      }
+
+      setMessage(
+        asset.isTest
+          ? `${asset.name} test a été supprimé avec son historique de test.`
+          : `${asset.name} a été supprimé.`
+      );
+    } catch (error) {
+      console.error(
+        "Erreur suppression :",
+        error
+      );
+
+      setMessage(
+        "Erreur lors de la suppression."
+      );
+
       return;
     }
 
-    setMessage(`${asset.name} a été supprimé.`);
     await loadAssets();
+    await loadRealizedGains();
   }
 
   const totals = useMemo(() => {
     return assets.reduce(
       (result, asset) => {
         const currentValue =
-          asset.quantity * asset.currentPrice;
+          asset.quantity *
+          asset.currentPrice;
 
         const investedValue =
-          asset.quantity * asset.buyPrice;
+          asset.quantity *
+          asset.buyPrice;
 
-        result.totalValueUSD += currentValue;
-        result.totalInvestedUSD += investedValue;
+        result.totalValueUSD +=
+          currentValue;
+
+        result.totalInvestedUSD +=
+          investedValue;
 
         return result;
       },
@@ -1024,7 +1147,8 @@ await loadRealizedGains();
   }, [assets]);
 
   const profitUSD =
-    totals.totalValueUSD - totals.totalInvestedUSD;
+    totals.totalValueUSD -
+    totals.totalInvestedUSD;
 
   const totalValueEUR =
     totals.totalValueUSD * usdToEur;
@@ -1037,52 +1161,96 @@ await loadRealizedGains();
 
   const globalPerformance =
     totals.totalInvestedUSD > 0
-      ? (profitUSD / totals.totalInvestedUSD) * 100
+      ? (profitUSD /
+          totals.totalInvestedUSD) *
+        100
       : 0;
 
   function getPriceDecimals(value) {
-    const v = Math.abs(Number(value) || 0);
+    const v = Math.abs(
+      Number(value) || 0
+    );
+
     if (v >= 100) return 2;
     if (v >= 1) return 3;
     if (v >= 0.1) return 4;
+
     return 5;
   }
 
-  function formatUSD(value, dynamicPrecision = false) {
-    const decimals = dynamicPrecision ? getPriceDecimals(value) : 2;
-    return new Intl.NumberFormat("fr-FR", {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: decimals,
-      maximumFractionDigits: decimals,
-    }).format(value || 0);
+  function formatUSD(
+    value,
+    dynamicPrecision = false
+  ) {
+    const decimals =
+      dynamicPrecision
+        ? getPriceDecimals(value)
+        : 2;
+
+    return new Intl.NumberFormat(
+      "fr-FR",
+      {
+        style: "currency",
+        currency: "USD",
+        minimumFractionDigits:
+          decimals,
+        maximumFractionDigits:
+          decimals,
+      }
+    ).format(value || 0);
   }
 
   function formatEUR(value) {
-    return new Intl.NumberFormat("fr-FR", {
-      style: "currency",
-      currency: "EUR",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(value || 0);
+    return new Intl.NumberFormat(
+      "fr-FR",
+      {
+        style: "currency",
+        currency: "EUR",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }
+    ).format(value || 0);
   }
 
-  function formatNumber(value, maximumFractionDigits = 8) {
-    return new Intl.NumberFormat("fr-FR", {
-      maximumFractionDigits,
-    }).format(value || 0);
+  function formatNumber(
+    value,
+    maximumFractionDigits = 8
+  ) {
+    return new Intl.NumberFormat(
+      "fr-FR",
+      {
+        maximumFractionDigits,
+      }
+    ).format(value || 0);
   }
 
   return (
-    <div style={styles.page} className="ld-page">
+    <div
+      style={styles.page}
+      className="ld-page"
+    >
       <style>{responsiveCss}</style>
-      <div style={styles.container} className="ld-container">
-        <header style={styles.header} className="ld-header">
+
+      <div
+        style={styles.container}
+        className="ld-container"
+      >
+        <header
+          style={styles.header}
+          className="ld-header"
+        >
           <div style={styles.headerCopy}>
-            <p style={styles.eyebrow}>Portfolio crypto</p>
-            <h1 style={styles.title}>Live Dashboard</h1>
+            <p style={styles.eyebrow}>
+              Portfolio crypto
+            </p>
+
+            <h1 style={styles.title}>
+              Live Dashboard
+            </h1>
+
             <p style={styles.subtitle}>
-              Suivi automatique des prix et de tes performances
+              Suivi automatique des prix et
+              de tes performances
             </p>
           </div>
 
@@ -1095,9 +1263,19 @@ await loadRealizedGains();
           </div>
         </header>
 
-        <section style={styles.performanceTopCard} className="ld-performance">
-          <span style={styles.performanceTopLabel}>
-            Performance totale du portefeuille
+        <section
+          style={
+            styles.performanceTopCard
+          }
+          className="ld-performance"
+        >
+          <span
+            style={
+              styles.performanceTopLabel
+            }
+          >
+            Performance totale du
+            portefeuille
           </span>
 
           <strong
@@ -1109,58 +1287,102 @@ await loadRealizedGains();
                   : "#fb7185",
             }}
           >
-            {globalPerformance >= 0 ? "+" : ""}
-            {globalPerformance.toFixed(2)} %
+            {globalPerformance >= 0
+              ? "+"
+              : ""}
+            {globalPerformance.toFixed(
+              2
+            )}{" "}
+            %
           </strong>
 
-          <span style={styles.performanceTopDescription}>
+          <span
+            style={
+              styles.performanceTopDescription
+            }
+          >
             Depuis le prix moyen d’achat
           </span>
         </section>
 
-        <section style={styles.addSection} className="ld-add-section">
-          <div style={styles.sectionHeading}>
-            <div style={styles.sectionTitleRow}>
-              <span style={styles.addIcon}>+</span>
+        <section
+          style={styles.addSection}
+          className="ld-add-section"
+        >
+          <div
+            style={styles.sectionHeading}
+          >
+            <div
+              style={
+                styles.sectionTitleRow
+              }
+            >
+              <span
+                style={styles.addIcon}
+              >
+                +
+              </span>
+
               <div>
-                <h2 style={styles.sectionTitle}>
+                <h2
+                  style={
+                    styles.sectionTitle
+                  }
+                >
                   Ajouter une crypto
                 </h2>
 
-
-                <p style={styles.sectionDescription}>
-                  Recherche par nom ou symbole
+                <p
+                  style={
+                    styles.sectionDescription
+                  }
+                >
+                  Recherche par nom ou
+                  symbole
                 </p>
-                {TEST_MODE_ENABLED && (
-  <label
-    style={{
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 8,
-      marginTop: 10,
-      color: "#f1c94c",
-      fontSize: 13,
-      fontWeight: 700,
-      cursor: "pointer",
-    }}
-  >
-    <input
-      type="checkbox"
-      checked={isTestPosition}
-      onChange={(event) =>
-        setIsTestPosition(event.target.checked)
-      }
-    />
-    Position de test
-  </label>
-)}
 
+                {TEST_MODE_ENABLED && (
+                  <label
+                    style={{
+                      display:
+                        "inline-flex",
+                      alignItems: "center",
+                      gap: 8,
+                      marginTop: 10,
+                      color: "#f1c94c",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={
+                        isTestPosition
+                      }
+                      onChange={(
+                        event
+                      ) =>
+                        setIsTestPosition(
+                          event.target
+                            .checked
+                        )
+                      }
+                    />
+
+                    Position de test
+                  </label>
+                )}
               </div>
             </div>
           </div>
 
-          <div style={styles.searchWrapper}>
-            <label style={styles.label}>
+          <div
+            style={styles.searchWrapper}
+          >
+            <label
+              style={styles.label}
+            >
               Crypto
             </label>
 
@@ -1173,7 +1395,8 @@ await loadRealizedGains();
               onChange={(event) => {
                 setForm({
                   ...form,
-                  search: event.target.value,
+                  search:
+                    event.target.value,
                 });
 
                 setSelectedToken(null);
@@ -1182,197 +1405,306 @@ await loadRealizedGains();
             />
 
             {isSearching && (
-              <div style={styles.searchStatus}>
+              <div
+                style={
+                  styles.searchStatus
+                }
+              >
                 Recherche en cours...
               </div>
             )}
 
-           {searchResults.length > 0 && (
-  <div style={styles.resultsBox}>
-    {searchResults.flatMap((token) => {
-      const options =
-        token.networkOptions?.length > 0
-          ? token.networkOptions
-          : [null];
-
-      return options.map((option, optionIndex) => (
-        <button
-          key={`${token.id}-${option?.network || "unknown"}-${option?.contractAddress || optionIndex}`}
-          type="button"
-          style={styles.resultButton}
-          onClick={() =>
-            selectToken({
-              ...token,
-              networkOptions: option ? [option] : [],
-            })
-          }
-        >
-          <img
-            src={token.image}
-            alt=""
-            style={styles.resultLogo}
-          />
-
-          <div style={styles.resultText}>
-            <strong style={styles.resultName}>
-              {token.name}
-            </strong>
-
-            <span style={styles.resultSymbol}>
-              {token.symbol}
-            </span>
-
-            {option ? (
-              <>
-                <span
-                  style={{
-                    ...styles.resultSymbol,
-                    display: "block",
-                    marginTop: 4,
-                  }}
-                >
-                  Réseau : {option.network}
-                  {option.tokenType === "native"
-                    ? " · Token natif"
-                    : ` · ${option.tokenType}`}
-                </span>
-
-                <span
-                  style={{
-                    ...styles.resultSymbol,
-                    display: "block",
-                    marginTop: 3,
-                    overflowWrap: "anywhere",
-                  }}
-                >
-                  {option.contractAddress
-                    ? `Contrat : ${option.contractAddress}`
-                    : "Contrat : aucun — token natif"}
-                </span>
-              </>
-            ) : (
-              <span
-                style={{
-                  ...styles.resultSymbol,
-                  display: "block",
-                  marginTop: 4,
-                }}
+            {searchResults.length > 0 && (
+              <div
+                style={styles.resultsBox}
               >
-                Réseau non identifié
-              </span>
+                {searchResults.flatMap(
+                  (token) => {
+                    const options =
+                      token
+                        .networkOptions
+                        ?.length > 0
+                        ? token.networkOptions
+                        : [null];
+
+                    return options.map(
+                      (
+                        option,
+                        optionIndex
+                      ) => (
+                        <button
+                          key={`${token.id}-${option?.network || "unknown"}-${option?.contractAddress || optionIndex}`}
+                          type="button"
+                          style={
+                            styles.resultButton
+                          }
+                          onClick={() =>
+                            selectToken({
+                              ...token,
+                              networkOptions:
+                                option
+                                  ? [
+                                      option,
+                                    ]
+                                  : [],
+                            })
+                          }
+                        >
+                          <img
+                            src={
+                              token.image
+                            }
+                            alt=""
+                            style={
+                              styles.resultLogo
+                            }
+                          />
+
+                          <div
+                            style={
+                              styles.resultText
+                            }
+                          >
+                            <strong
+                              style={
+                                styles.resultName
+                              }
+                            >
+                              {
+                                token.name
+                              }
+                            </strong>
+
+                            <span
+                              style={
+                                styles.resultSymbol
+                              }
+                            >
+                              {
+                                token.symbol
+                              }
+                            </span>
+
+                            {option ? (
+                              <>
+                                <span
+                                  style={{
+                                    ...styles.resultSymbol,
+                                    display:
+                                      "block",
+                                    marginTop: 4,
+                                  }}
+                                >
+                                  Réseau :{" "}
+                                  {
+                                    option.network
+                                  }
+                                  {option.tokenType ===
+                                  "native"
+                                    ? " · Token natif"
+                                    : ` · ${option.tokenType}`}
+                                </span>
+
+                                <span
+                                  style={{
+                                    ...styles.resultSymbol,
+                                    display:
+                                      "block",
+                                    marginTop: 3,
+                                    overflowWrap:
+                                      "anywhere",
+                                  }}
+                                >
+                                  {option.contractAddress
+                                    ? `Contrat : ${option.contractAddress}`
+                                    : "Contrat : aucun — token natif"}
+                                </span>
+                              </>
+                            ) : (
+                              <span
+                                style={{
+                                  ...styles.resultSymbol,
+                                  display:
+                                    "block",
+                                  marginTop: 4,
+                                }}
+                              >
+                                Réseau non
+                                identifié
+                              </span>
+                            )}
+                          </div>
+
+                          <span
+                            style={
+                              styles.rank
+                            }
+                          >
+                            {token.marketCapRank
+                              ? `#${token.marketCapRank}`
+                              : "Non classé"}
+                          </span>
+                        </button>
+                      )
+                    );
+                  }
+                )}
+              </div>
             )}
           </div>
 
-          <span style={styles.rank}>
-            {token.marketCapRank
-              ? `#${token.marketCapRank}`
-              : "Non classé"}
-          </span>
-        </button>
-      ));
-    })}
-  </div>
-)} 
-          </div>
-
           {selectedToken && (
-  <div style={styles.selectedToken}>
-    <img
-      src={selectedToken.image}
-      alt=""
-      style={styles.selectedLogo}
-    />
+            <div
+              style={styles.selectedToken}
+            >
+              <img
+                src={selectedToken.image}
+                alt=""
+                style={
+                  styles.selectedLogo
+                }
+              />
 
-    <div>
-      <strong style={styles.selectedName}>
-        {selectedToken.name}
-      </strong>
+              <div>
+                <strong
+                  style={
+                    styles.selectedName
+                  }
+                >
+                  {selectedToken.name}
+                </strong>
 
+                <span
+                  style={
+                    styles.selectedSymbol
+                  }
+                >
+                  {selectedToken.symbol} · ID
+                  CoinGecko :{" "}
+                  {selectedToken.id}
+                </span>
 
-      <span style={styles.selectedSymbol}>
-        {selectedToken.symbol} · ID CoinGecko : {selectedToken.id}
-      </span>
+                {selectedToken
+                  .networkOptions?.length ===
+                1 ? (
+                  <span
+                    style={{
+                      ...styles.selectedSymbol,
+                      display: "block",
+                      marginTop: 6,
+                    }}
+                  >
+                    Réseau :{" "}
+                    {
+                      selectedToken
+                        .networkOptions[0]
+                        .network
+                    }
+                    {selectedToken
+                      .networkOptions[0]
+                      .tokenType ===
+                    "native"
+                      ? " · Token natif"
+                      : ` · ${selectedToken.networkOptions[0].tokenType}`}
+                    {selectedToken
+                      .networkOptions[0]
+                      .contractAddress
+                      ? ` · Contrat : ${selectedToken.networkOptions[0].contractAddress}`
+                      : ""}
+                  </span>
+                ) : selectedToken
+                    .networkOptions
+                    ?.length > 1 ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection:
+                        "column",
+                      gap: 8,
+                      marginTop: 8,
+                    }}
+                  >
+                    {selectedToken.networkOptions.map(
+                      (option) => {
+                        const isSelected =
+                          selectedNetworkOption?.network ===
+                            option.network &&
+                          selectedNetworkOption?.contractAddress ===
+                            option.contractAddress;
 
-{selectedToken.networkOptions?.length === 1 ? (
-  <span
-    style={{
-      ...styles.selectedSymbol,
-      display: "block",
-      marginTop: 6,
-    }}
-  >
-    Réseau : {selectedToken.networkOptions[0].network}
-    {selectedToken.networkOptions[0].tokenType === "native"
-      ? " · Token natif"
-      : ` · ${selectedToken.networkOptions[0].tokenType}`}
-    {selectedToken.networkOptions[0].contractAddress
-      ? ` · Contrat : ${selectedToken.networkOptions[0].contractAddress}`
-      : ""}
-  </span>
-) : selectedToken.networkOptions?.length > 1 ? (
-  <div
-    style={{
-      display: "flex",
-      flexDirection: "column",
-      gap: 8,
-      marginTop: 8,
-    }}
-  >
-    {selectedToken.networkOptions.map((option) => {
-      const isSelected =
-        selectedNetworkOption?.network === option.network &&
-        selectedNetworkOption?.contractAddress === option.contractAddress;
+                        return (
+                          <button
+                            key={`${option.network}-${option.contractAddress || "native"}`}
+                            type="button"
+                            onClick={() =>
+                              setSelectedNetworkOption(
+                                option
+                              )
+                            }
+                            style={{
+                              padding:
+                                "9px 11px",
+                              borderRadius: 10,
+                              border:
+                                isSelected
+                                  ? "1px solid rgba(94, 219, 54, .85)"
+                                  : "1px solid rgba(76,89,81,.60)",
+                              background:
+                                isSelected
+                                  ? "rgba(49, 145, 54, .18)"
+                                  : "rgba(3,15,11,.72)",
+                              color:
+                                isSelected
+                                  ? "#9bea87"
+                                  : "#b5bdb7",
+                              textAlign:
+                                "left",
+                              cursor:
+                                "pointer",
+                            }}
+                          >
+                            <strong>
+                              {
+                                option.network
+                              }
+                            </strong>
+                            {" · "}
+                            {option.tokenType ===
+                            "native"
+                              ? "Token natif"
+                              : option.tokenType}
 
-      return (
-        <button
-          key={`${option.network}-${option.contractAddress || "native"}`}
-          type="button"
-          onClick={() => setSelectedNetworkOption(option)}
-          style={{
-            padding: "9px 11px",
-            borderRadius: 10,
-            border: isSelected
-              ? "1px solid rgba(94, 219, 54, .85)"
-              : "1px solid rgba(76,89,81,.60)",
-            background: isSelected
-              ? "rgba(49, 145, 54, .18)"
-              : "rgba(3,15,11,.72)",
-            color: isSelected ? "#9bea87" : "#b5bdb7",
-            textAlign: "left",
-            cursor: "pointer",
-          }}
-        >
-          <strong>{option.network}</strong>
-          {" · "}
-          {option.tokenType === "native"
-            ? "Token natif"
-            : option.tokenType}
+                            {option.contractAddress
+                              ? ` · Contrat : ${option.contractAddress}`
+                              : ""}
+                          </button>
+                        );
+                      }
+                    )}
+                  </div>
+                ) : (
+                  <span
+                    style={{
+                      ...styles.selectedSymbol,
+                      display: "block",
+                      marginTop: 4,
+                    }}
+                  >
+                    Réseau non identifié
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
 
-          {option.contractAddress
-            ? ` · Contrat : ${option.contractAddress}`
-            : ""}
-        </button>
-      );
-    })}
-  </div>
-) : (
-  <span
-    style={{
-      ...styles.selectedSymbol,
-      display: "block",
-      marginTop: 4,
-    }}
-  >
-    Réseau non identifié
-  </span>
-)}       
-    </div>
-  </div>
-)}
-
-          <div style={styles.formGrid} className="ld-form-grid">
+          <div
+            style={styles.formGrid}
+            className="ld-form-grid"
+          >
             <div>
-              <label style={styles.label}>
+              <label
+                style={styles.label}
+              >
                 Quantité achetée
               </label>
 
@@ -1386,15 +1718,19 @@ await loadRealizedGains();
                 onChange={(event) =>
                   setForm({
                     ...form,
-                    quantity: event.target.value,
+                    quantity:
+                      event.target.value,
                   })
                 }
               />
             </div>
 
             <div>
-              <label style={styles.label}>
-                Prix d’achat unitaire en USD
+              <label
+                style={styles.label}
+              >
+                Prix d’achat unitaire en
+                USD
               </label>
 
               <input
@@ -1407,7 +1743,8 @@ await loadRealizedGains();
                 onChange={(event) =>
                   setForm({
                     ...form,
-                    buyPrice: event.target.value,
+                    buyPrice:
+                      event.target.value,
                   })
                 }
               />
@@ -1417,8 +1754,12 @@ await loadRealizedGains();
           <button
             style={{
               ...styles.addButton,
-              opacity: isAdding ? 0.65 : 1,
-              cursor: isAdding ? "wait" : "pointer",
+              opacity: isAdding
+                ? 0.65
+                : 1,
+              cursor: isAdding
+                ? "wait"
+                : "pointer",
             }}
             type="button"
             disabled={isAdding}
@@ -1436,81 +1777,150 @@ await loadRealizedGains();
           </div>
         )}
 
-        <section style={styles.portfolioSection}>
-          <div style={styles.sectionHeading}>
+        <section
+          style={styles.portfolioSection}
+        >
+          <div
+            style={styles.sectionHeading}
+          >
             <div>
-              <h2 style={styles.sectionTitle}>
+              <h2
+                style={styles.sectionTitle}
+              >
                 Mes positions
               </h2>
 
-              <p style={styles.sectionDescription}>
+              <p
+                style={
+                  styles.sectionDescription
+                }
+              >
                 {assets.length} crypto
-                {assets.length > 1 ? "s" : ""} enregistrée
-                {assets.length > 1 ? "s" : ""}
+                {assets.length > 1
+                  ? "s"
+                  : ""}{" "}
+                enregistrée
+                {assets.length > 1
+                  ? "s"
+                  : ""}
               </p>
             </div>
           </div>
 
           {assets.length === 0 ? (
-            <div style={styles.emptyState}>
-              <div style={styles.emptyIcon}>₿</div>
+            <div
+              style={styles.emptyState}
+            >
+              <div
+                style={styles.emptyIcon}
+              >
+                ₿
+              </div>
 
-              <h3 style={styles.emptyTitle}>
+              <h3
+                style={styles.emptyTitle}
+              >
                 Ton portefeuille est vide
               </h3>
 
-              <p style={styles.emptyText}>
-                Recherche une crypto ci-dessus pour ajouter ta
+              <p
+                style={styles.emptyText}
+              >
+                Recherche une crypto
+                ci-dessus pour ajouter ta
                 première position.
               </p>
             </div>
           ) : (
-            <div style={styles.cardGrid} className="ld-card-grid">
+            <div
+              style={styles.cardGrid}
+              className="ld-card-grid"
+            >
               {assets.map((asset) => {
                 const currentValue =
-                  asset.quantity * asset.currentPrice;
+                  asset.quantity *
+                  asset.currentPrice;
 
                 const investedValue =
-                  asset.quantity * asset.buyPrice;
+                  asset.quantity *
+                  asset.buyPrice;
 
                 const profit =
-                  currentValue - investedValue;
+                  currentValue -
+                  investedValue;
 
                 const performance =
                   investedValue > 0
-                    ? (profit / investedValue) * 100
+                    ? (profit /
+                        investedValue) *
+                      100
                     : 0;
 
                 return (
                   <article
                     key={asset.dbId}
-                    style={styles.cryptoCard}
+                    style={
+                      styles.cryptoCard
+                    }
                     className="ld-crypto-card"
                   >
-                    <div style={styles.cardHeader} className="ld-card-header">
-                      <div style={styles.tokenIdentity} className="ld-token-identity">
+                    <div
+                      style={
+                        styles.cardHeader
+                      }
+                      className="ld-card-header"
+                    >
+                      <div
+                        style={
+                          styles.tokenIdentity
+                        }
+                        className="ld-token-identity"
+                      >
                         {asset.image ? (
                           <img
-                            src={asset.image}
+                            src={
+                              asset.image
+                            }
                             alt=""
-                            style={styles.tokenLogo}
+                            style={
+                              styles.tokenLogo
+                            }
                             className="ld-token-logo"
                           />
                         ) : (
-                          <div style={styles.logoPlaceholder} className="ld-token-logo ld-token-placeholder">
+                          <div
+                            style={
+                              styles.logoPlaceholder
+                            }
+                            className="ld-token-logo ld-token-placeholder"
+                          >
                             {asset.name
-                              ?.slice(0, 1)
+                              ?.slice(
+                                0,
+                                1
+                              )
                               .toUpperCase()}
                           </div>
                         )}
 
                         <div>
-                          <h3 style={styles.cardTitle} className="ld-card-title">
+                          <h3
+                            style={
+                              styles.cardTitle
+                            }
+                            className="ld-card-title"
+                          >
                             {asset.name}
                           </h3>
 
-                          <span style={styles.cardSymbol} className="ld-card-symbol">
-                            {asset.symbol || asset.id}
+                          <span
+                            style={
+                              styles.cardSymbol
+                            }
+                            className="ld-card-symbol"
+                          >
+                            {asset.symbol ||
+                              asset.id}
                           </span>
                         </div>
                       </div>
@@ -1520,77 +1930,177 @@ await loadRealizedGains();
                         style={{
                           ...styles.changeBadge,
                           color:
-                            asset.priceChange24h >= 0
+                            asset.priceChange24h >=
+                            0
                               ? "#4ade80"
                               : "#fb7185",
                           background:
-                            asset.priceChange24h >= 0
+                            asset.priceChange24h >=
+                            0
                               ? "rgba(74, 222, 128, 0.12)"
                               : "rgba(251, 113, 133, 0.12)",
                         }}
                       >
-                        {asset.priceChange24h >= 0
+                        {asset.priceChange24h >=
+                        0
                           ? "+"
                           : ""}
-                        {asset.priceChange24h.toFixed(2)} %
+                        {asset.priceChange24h.toFixed(
+                          2
+                        )}{" "}
+                        %
                       </div>
                     </div>
 
-                    <div style={styles.priceBlock} className="ld-price-block">
-                      <span style={styles.priceLabel} className="ld-price-label">
+                    <div
+                      style={
+                        styles.priceBlock
+                      }
+                      className="ld-price-block"
+                    >
+                      <span
+                        style={
+                          styles.priceLabel
+                        }
+                        className="ld-price-label"
+                      >
                         Prix actuel
                       </span>
 
-                      <strong style={styles.currentPrice} className="ld-current-price">
-                        {formatUSD(asset.currentPrice, true)}
+                      <strong
+                        style={
+                          styles.currentPrice
+                        }
+                        className="ld-current-price"
+                      >
+                        {formatUSD(
+                          asset.currentPrice,
+                          true
+                        )}
                       </strong>
                     </div>
 
-                    <div style={styles.dataRows} className="ld-data-rows">
-                      <div style={styles.line} className="ld-data-line">
-                        <span style={styles.lineLabel} className="ld-line-label">
+                    <div
+                      style={
+                        styles.dataRows
+                      }
+                      className="ld-data-rows"
+                    >
+                      <div
+                        style={styles.line}
+                        className="ld-data-line"
+                      >
+                        <span
+                          style={
+                            styles.lineLabel
+                          }
+                          className="ld-line-label"
+                        >
                           Quantité
                         </span>
 
-                        <strong style={styles.lineValue} className="ld-line-value">
-                          {formatNumber(asset.quantity)}
+                        <strong
+                          style={
+                            styles.lineValue
+                          }
+                          className="ld-line-value"
+                        >
+                          {formatNumber(
+                            asset.quantity
+                          )}
                         </strong>
                       </div>
 
-                      <div style={styles.line} className="ld-data-line">
-                        <span style={styles.lineLabel} className="ld-line-label">
+                      <div
+                        style={styles.line}
+                        className="ld-data-line"
+                      >
+                        <span
+                          style={
+                            styles.lineLabel
+                          }
+                          className="ld-line-label"
+                        >
                           Prix moyen
                         </span>
 
-                        <strong style={styles.lineValue} className="ld-line-value">
-                          {formatUSD(asset.buyPrice, true)}
+                        <strong
+                          style={
+                            styles.lineValue
+                          }
+                          className="ld-line-value"
+                        >
+                          {formatUSD(
+                            asset.buyPrice,
+                            true
+                          )}
                         </strong>
                       </div>
 
-                      <div style={styles.line} className="ld-data-line">
-                        <span style={styles.lineLabel} className="ld-line-label">
+                      <div
+                        style={styles.line}
+                        className="ld-data-line"
+                      >
+                        <span
+                          style={
+                            styles.lineLabel
+                          }
+                          className="ld-line-label"
+                        >
                           Montant investi
                         </span>
 
-                        <strong style={styles.lineValue} className="ld-line-value">
-                          {formatUSD(investedValue)}
+                        <strong
+                          style={
+                            styles.lineValue
+                          }
+                          className="ld-line-value"
+                        >
+                          {formatUSD(
+                            investedValue
+                          )}
                         </strong>
                       </div>
 
-                      <div style={styles.line} className="ld-data-line">
-                        <span style={styles.lineLabel} className="ld-line-label">
+                      <div
+                        style={styles.line}
+                        className="ld-data-line"
+                      >
+                        <span
+                          style={
+                            styles.lineLabel
+                          }
+                          className="ld-line-label"
+                        >
                           Valeur actuelle
                         </span>
 
-                        <strong style={styles.lineValue} className="ld-line-value">
-                          {formatUSD(currentValue)}
+                        <strong
+                          style={
+                            styles.lineValue
+                          }
+                          className="ld-line-value"
+                        >
+                          {formatUSD(
+                            currentValue
+                          )}
                         </strong>
                       </div>
                     </div>
 
-                    <div style={styles.profitBox} className="ld-profit-box">
+                    <div
+                      style={
+                        styles.profitBox
+                      }
+                      className="ld-profit-box"
+                    >
                       <div>
-                        <span style={styles.profitLabel} className="ld-profit-label">
+                        <span
+                          style={
+                            styles.profitLabel
+                          }
+                          className="ld-profit-label"
+                        >
                           Résultat
                         </span>
 
@@ -1604,8 +2114,12 @@ await loadRealizedGains();
                                 : "#fb7185",
                           }}
                         >
-                          {profit >= 0 ? "+" : ""}
-                          {formatUSD(profit)}
+                          {profit >= 0
+                            ? "+"
+                            : ""}
+                          {formatUSD(
+                            profit
+                          )}
                         </strong>
                       </div>
 
@@ -1614,49 +2128,86 @@ await loadRealizedGains();
                         style={{
                           ...styles.performance,
                           color:
-                            performance >= 0
+                            performance >=
+                            0
                               ? "#4ade80"
                               : "#fb7185",
                         }}
                       >
-                        {performance >= 0 ? "+" : ""}
-                        {performance.toFixed(2)} %
+                        {performance >= 0
+                          ? "+"
+                          : ""}
+                        {performance.toFixed(
+                          2
+                        )}{" "}
+                        %
                       </strong>
                     </div>
 
-                    <div style={styles.cardActions} className="ld-card-actions">
+                    <div
+                      style={
+                        styles.cardActions
+                      }
+                      className="ld-card-actions"
+                    >
                       <button
                         type="button"
-                        style={styles.editButton}
+                        style={
+                          styles.editButton
+                        }
                         className="ld-card-action ld-card-action--buy"
-                        onClick={() => openTransactionForm(asset, "purchase")}
+                        onClick={() =>
+                          openTransactionForm(
+                            asset,
+                            "purchase"
+                          )
+                        }
                       >
                         Acheter
                       </button>
 
                       <button
                         type="button"
-                        style={styles.sellButton}
+                        style={
+                          styles.sellButton
+                        }
                         className="ld-card-action ld-card-action--sell"
-                        onClick={() => openTransactionForm(asset, "sale")}
+                        onClick={() =>
+                          openTransactionForm(
+                            asset,
+                            "sale"
+                          )
+                        }
                       >
                         Vendre
                       </button>
 
                       <button
                         type="button"
-                        style={styles.historyButton}
+                        style={
+                          styles.historyButton
+                        }
                         className="ld-card-action ld-card-action--history"
-                        onClick={() => openHistory(asset)}
+                        onClick={() =>
+                          openHistory(
+                            asset
+                          )
+                        }
                       >
                         Historique
                       </button>
 
                       <button
                         type="button"
-                        style={styles.deleteButton}
+                        style={
+                          styles.deleteButton
+                        }
                         className="ld-card-action ld-card-action--delete"
-                        onClick={() => deleteAsset(asset)}
+                        onClick={() =>
+                          deleteAsset(
+                            asset
+                          )
+                        }
                       >
                         Supprimer
                       </button>
@@ -1668,362 +2219,1402 @@ await loadRealizedGains();
           )}
         </section>
 
-        <section style={styles.bottomSummarySection}>
-          <div style={styles.bottomSummaryHeader}>
+        <section
+          style={
+            styles.bottomSummarySection
+          }
+        >
+          <div
+            style={
+              styles.bottomSummaryHeader
+            }
+          >
             <div>
-              <h2 style={styles.sectionTitle}>
+              <h2
+                style={styles.sectionTitle}
+              >
                 Résumé du portefeuille
               </h2>
 
-              <p style={styles.sectionDescription}>
-                Montants en dollars et conversion en euros
+              <p
+                style={
+                  styles.sectionDescription
+                }
+              >
+                Montants en dollars et
+                conversion en euros
               </p>
             </div>
 
             <button
               type="button"
-              style={styles.visibilityButton}
-              onClick={() => setShowAmounts((current) => !current)}
+              style={
+                styles.visibilityButton
+              }
+              onClick={() =>
+                setShowAmounts(
+                  (current) => !current
+                )
+              }
               aria-label={
                 showAmounts
                   ? "Masquer les montants"
                   : "Afficher les montants"
               }
             >
-              <span style={styles.visibilityIcon}>
-                {showAmounts ? "◉" : "◌"}
+              <span
+                style={
+                  styles.visibilityIcon
+                }
+              >
+                {showAmounts
+                  ? "◉"
+                  : "◌"}
               </span>
-              {showAmounts ? "Masquer" : "Afficher"}
+
+              {showAmounts
+                ? "Masquer"
+                : "Afficher"}
             </button>
           </div>
 
-          <div style={styles.summaryGrid} className="ld-summary-grid">
-            <div style={styles.summaryCard}>
-              <span style={styles.summaryLabel}>
-                Valeur actuelle
-              </span>
-
-              <strong style={styles.summaryValue}>
-                {showAmounts
-                  ? formatUSD(totals.totalValueUSD)
-                  : "••••••"}
-              </strong>
-
-              <span style={styles.summarySecondary}>
-                {showAmounts
-                  ? formatEUR(totalValueEUR)
-                  : "••••••"}
-              </span>
-            </div>
-
-            <div style={styles.summaryCard}>
-              <span style={styles.summaryLabel}>
+          <div
+            style={styles.summaryGrid}
+            className="ld-summary-grid"
+          >
+                        <div
+              style={{
+                ...styles.summaryCard,
+                gridColumn: "1 / -1",
+                padding: "24px 18px",
+              }}
+            >
+              <span
+                style={{
+                  ...styles.summaryLabel,
+                  color: "#efd08a",
+                  textAlign: "center",
+                  fontSize: 16,
+                }}
+              >
                 Montant investi
               </span>
 
-              <strong style={styles.summaryValue}>
-                {showAmounts
-                  ? formatUSD(totals.totalInvestedUSD)
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 10,
+                  marginTop: 8,
+                }}
+              >
+                <strong
+                  style={{
+                    ...styles.summaryValue,
+                    fontSize: 30,
+                  }}
+                >
+                  {showInvestedAmounts
+                    ? formatUSD(
+                        totals.totalInvestedUSD
+                      )
+                    : "••••••"}
+                </strong>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowInvestedAmounts(
+                      (current) => !current
+                    )
+                  }
+                  aria-label={
+                    showInvestedAmounts
+                      ? "Masquer le montant investi"
+                      : "Afficher le montant investi"
+                  }
+                  title={
+                    showInvestedAmounts
+                      ? "Masquer le montant investi"
+                      : "Afficher le montant investi"
+                  }
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    color: "#efd08a",
+                    fontSize: 24,
+                    cursor: "pointer",
+                    padding: 4,
+                    lineHeight: 1,
+                  }}
+                >
+                  {showInvestedAmounts
+                    ? "◉"
+                    : "◌"}
+                </button>
+              </div>
+
+                            <div
+                style={{
+                  width: "100%",
+                  marginTop: 28,
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: `repeat(${Math.min(
+                      Math.max(assets.length, 1),
+                      8
+                    )}, minmax(0, 1fr))`,
+                    gridAutoRows: "290px",
+                    alignItems: "end",
+                    gap: 10,
+                    width: "100%",
+                    minWidth: 0,
+                    height: "auto",
+                    padding: "0 4px",
+                  }}
+                >
+                  {[...assets]
+                    .map((asset) => {
+                      const value =
+                        Number(asset.quantity || 0) *
+                        Number(asset.buyPrice || 0);
+
+                      const percentage =
+                        totals.totalInvestedUSD > 0
+                          ? (value /
+                              totals.totalInvestedUSD) *
+                            100
+                          : 0;
+
+                      return {
+                        ...asset,
+                        chartValue: value,
+                        percentage,
+                      };
+                    })
+                    .filter(
+                      (asset) =>
+                        asset.chartValue > 0
+                    )
+                    .sort(
+                      (a, b) =>
+                        b.chartValue -
+                        a.chartValue
+                    )
+                    .map((asset) => {
+                      const barHeight =
+                        Math.max(
+                          8,
+                          Math.min(
+                            160,
+                            (asset.percentage /
+                              40) *
+                              160
+                          )
+                        );
+
+                      return (
+                        <div
+                          key={`invested-${asset.dbId}`}
+                          style={{
+                            height: "100%",
+                            display: "flex",
+                            flexDirection:
+                              "column",
+                            justifyContent:
+                              "flex-end",
+                            alignItems:
+                              "center",
+                            minWidth: 0,
+                          }}
+                        >
+                          <span
+                            style={{
+                              color: "#dce4de",
+                              fontSize: 12,
+                              fontWeight: 800,
+                              marginBottom: 6,
+                            }}
+                          >
+                            {asset.percentage.toFixed(
+                              1
+                            )}
+                            %
+                          </span>
+
+                          <div
+                            style={{
+                              width: 42,
+                              height: barHeight,
+                              minHeight: 8,
+                              borderRadius:
+                                "5px 5px 0 0",
+                              background:
+                                "linear-gradient(180deg, #f6b51b 0%, #b96d00 100%)",
+                              boxShadow:
+                                "0 0 14px rgba(246,181,27,.14)",
+                            }}
+                          />
+
+                          <div
+                            style={{
+                              width: "100%",
+                              borderTop:
+                                "1px solid rgba(76,89,81,.70)",
+                              paddingTop: 10,
+                              display: "flex",
+                              flexDirection:
+                                "column",
+                              alignItems:
+                                "center",
+                              gap: 5,
+                            }}
+                          >
+                            {asset.image ? (
+                              <img
+                                src={asset.image}
+                                alt=""
+                                style={{
+                                  width: 32,
+                                  height: 32,
+                                  borderRadius:
+                                    "50%",
+                                  objectFit:
+                                    "cover",
+                                }}
+                              />
+                            ) : (
+                              <div
+                                style={{
+                                  width: 32,
+                                  height: 32,
+                                  borderRadius:
+                                    "50%",
+                                  display:
+                                    "grid",
+                                  placeItems:
+                                    "center",
+                                  background:
+                                    "rgba(255,255,255,.06)",
+                                  color:
+                                    "#dce4de",
+                                  fontWeight:
+                                    800,
+                                }}
+                              >
+                                {String(
+                                  asset.symbol ||
+                                    asset.id ||
+                                    "?"
+                                )
+                                  .slice(0, 1)
+                                  .toUpperCase()}
+                              </div>
+                            )}
+
+                            <span
+                             style={{
+  color: "#aeb8b1",
+  fontSize: 10,
+  fontFamily: "Arial, sans-serif",
+  fontWeight: 700,
+  maxWidth: "100%",
+  overflow: "visible",
+  whiteSpace: "nowrap",
+}}
+                            >
+                              {String(
+                                asset.symbol ||
+                                  asset.id ||
+                                  ""
+                              ).toUpperCase()}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                ...styles.summaryCard,
+                gridColumn: "1 / -1",
+                padding: "24px 18px",
+              }}
+            >
+              <span
+                style={{
+                  ...styles.summaryLabel,
+                  color: "#4ade80",
+                  textAlign: "center",
+                  fontSize: 16,
+                }}
+              >
+                Valeur actuelle
+              </span>
+
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 10,
+                  marginTop: 8,
+                }}
+              >
+                <strong
+                  style={{
+                    ...styles.summaryValue,
+                    fontSize: 30,
+                  }}
+                >
+                  {showCurrentAmounts
+                    ? formatUSD(
+                        totals.totalValueUSD
+                      )
+                    : "••••••"}
+                </strong>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowCurrentAmounts(
+                      (current) => !current
+                    )
+                  }
+                  aria-label={
+                    showCurrentAmounts
+                      ? "Masquer la valeur actuelle"
+                      : "Afficher la valeur actuelle"
+                  }
+                  title={
+                    showCurrentAmounts
+                      ? "Masquer la valeur actuelle"
+                      : "Afficher la valeur actuelle"
+                  }
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    color: "#4ade80",
+                    fontSize: 24,
+                    cursor: "pointer",
+                    padding: 4,
+                    lineHeight: 1,
+                  }}
+                >
+                  {showCurrentAmounts
+                    ? "◉"
+                    : "◌"}
+                </button>
+              </div>
+
+                            <div
+                style={{
+                  width: "100%",
+                  marginTop: 28,
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: `repeat(${Math.min(
+                      Math.max(assets.length, 1),
+                      8
+                    )}, minmax(0, 1fr))`,
+                    gridAutoRows: "290px",
+                    alignItems: "end",
+                    gap: 10,
+                    width: "100%",
+                    minWidth: 0,
+                    height: "auto",
+                    padding: "0 4px",
+                  }}
+                >
+                  {[...assets]
+                    .map((asset) => {
+                      const value =
+                        Number(asset.quantity || 0) *
+                        Number(
+                          asset.currentPrice || 0
+                        );
+
+                      const percentage =
+                        totals.totalValueUSD > 0
+                          ? (value /
+                              totals.totalValueUSD) *
+                            100
+                          : 0;
+
+                      return {
+                        ...asset,
+                        chartValue: value,
+                        percentage,
+                      };
+                    })
+                    .filter(
+                      (asset) =>
+                        asset.chartValue > 0
+                    )
+                    .sort(
+                      (a, b) =>
+                        b.chartValue -
+                        a.chartValue
+                    )
+                    .map((asset) => {
+                      const barHeight =
+                        Math.max(
+                          8,
+                          Math.min(
+                            160,
+                            (asset.percentage /
+                              40) *
+                              160
+                          )
+                        );
+
+                      return (
+                        <div
+                          key={`current-${asset.dbId}`}
+                          style={{
+                            height: "100%",
+                            display: "flex",
+                            flexDirection:
+                              "column",
+                            justifyContent:
+                              "flex-end",
+                            alignItems:
+                              "center",
+                            minWidth: 0,
+                          }}
+                        >
+                          <span
+                            style={{
+                              color: "#dce4de",
+                              fontSize: 12,
+                              fontWeight: 800,
+                              marginBottom: 6,
+                            }}
+                          >
+                            {asset.percentage.toFixed(
+                              1
+                            )}
+                            %
+                          </span>
+
+                          <div
+                            style={{
+                              width: 42,
+                              height: barHeight,
+                              minHeight: 8,
+                              borderRadius:
+                                "5px 5px 0 0",
+                              background:
+                                "linear-gradient(180deg, #22d66f 0%, #08783e 100%)",
+                              boxShadow:
+                                "0 0 14px rgba(34,214,111,.14)",
+                            }}
+                          />
+
+                          <div
+                            style={{
+                              width: "100%",
+                              borderTop:
+                                "1px solid rgba(76,89,81,.70)",
+                              paddingTop: 10,
+                              display: "flex",
+                              flexDirection:
+                                "column",
+                              alignItems:
+                                "center",
+                              gap: 5,
+                            }}
+                          >
+                            {asset.image ? (
+                              <img
+                                src={asset.image}
+                                alt=""
+                                style={{
+                                  width: 32,
+                                  height: 32,
+                                  borderRadius:
+                                    "50%",
+                                  objectFit:
+                                    "cover",
+                                }}
+                              />
+                            ) : (
+                              <div
+                                style={{
+                                  width: 32,
+                                  height: 32,
+                                  borderRadius:
+                                    "50%",
+                                  display:
+                                    "grid",
+                                  placeItems:
+                                    "center",
+                                  background:
+                                    "rgba(255,255,255,.06)",
+                                  color:
+                                    "#dce4de",
+                                  fontWeight:
+                                    800,
+                                }}
+                              >
+                                {String(
+                                  asset.symbol ||
+                                    asset.id ||
+                                    "?"
+                                )
+                                  .slice(0, 1)
+                                  .toUpperCase()}
+                              </div>
+                            )}
+
+                            <span
+                              style={{
+  color: "#aeb8b1",
+  fontSize: 10,
+  fontFamily: "Arial, sans-serif",
+  fontWeight: 700,
+  maxWidth: "100%",
+  overflow: "visible",
+  whiteSpace: "nowrap",
+}}
+                            >
+                              {String(
+                                asset.symbol ||
+                                  asset.id ||
+                                  ""
+                              ).toUpperCase()}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            </div>
+
+                      <div
+              style={styles.summaryCard}
+            >
+              <span
+                style={
+                  styles.summaryLabel
+                }
+              >
+                Bénéfice total
+              </span>
+
+              <strong
+                style={{
+                  ...styles.summaryValue,
+                  color:
+                    profitUSD >= 0
+                      ? "#4ade80"
+                      : "#fb7185",
+                }}
+              >
+                {showProfitAmounts
+                  ? `${
+                      profitUSD >= 0
+                        ? "+"
+                        : ""
+                    }${formatUSD(
+                      profitUSD
+                    )}`
                   : "••••••"}
               </strong>
 
-              <span style={styles.summarySecondary}>
-                {showAmounts
-                  ? formatEUR(totalInvestedEUR)
+              <span
+                style={{
+                  ...styles.summarySecondary,
+                  color:
+                    profitEUR >= 0
+                      ? "#4ade80"
+                      : "#fb7185",
+                }}
+              >
+                {showProfitAmounts
+                  ? `${
+                      profitEUR >= 0
+                        ? "+"
+                        : ""
+                    }${formatEUR(
+                      profitEUR
+                    )}`
                   : "••••••"}
               </span>
+
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginTop: 6,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowProfitAmounts(
+                      (current) =>
+                        !current
+                    )
+                  }
+                  aria-label={
+                    showProfitAmounts
+                      ? "Masquer le bénéfice total"
+                      : "Afficher le bénéfice total"
+                  }
+                  title={
+                    showProfitAmounts
+                      ? "Masquer le bénéfice"
+                      : "Afficher le bénéfice"
+                  }
+                  style={{
+                    width: 38,
+                    height: 38,
+                    display: "grid",
+                    placeItems:
+                      "center",
+                    flexShrink: 0,
+                    padding: 0,
+                    border:
+                      "1px solid rgba(88,200,62,.36)",
+                    borderRadius: 10,
+                    background:
+                      "#0b2117",
+                    color:
+                      "#b9e9b0",
+                    fontSize: 18,
+                    fontWeight: 900,
+                    cursor:
+                      "pointer",
+                  }}
+                >
+                  {showProfitAmounts
+                    ? "◉"
+                    : "◌"}
+                </button>
+              </div>
+            </div>  
+
+            <div
+              style={styles.summaryCard}
+            >
+              <span
+                style={
+                  styles.summaryLabel
+                }
+              >
+                Gains réalisés
+              </span>
+
+              <strong
+                style={{
+                  ...styles.summaryValue,
+                  color:
+                    realizedGainUSD >= 0
+                      ? "#4ade80"
+                      : "#fb7185",
+                }}
+              >
+                {showRealizedAmounts
+                  ? `${
+                      realizedGainUSD >=
+                      0
+                        ? "+"
+                        : ""
+                    }${formatUSD(
+                      realizedGainUSD
+                    )}`
+                  : "••••••"}
+              </strong>
+
+              <span
+                style={{
+                  ...styles.summarySecondary,
+                  color:
+                    realizedGainUSD >= 0
+                      ? "#4ade80"
+                      : "#fb7185",
+                }}
+              >
+                {showRealizedAmounts
+                  ? `${
+                      realizedGainUSD >=
+                      0
+                        ? "+"
+                        : ""
+                    }${formatEUR(
+                      realizedGainUSD *
+                        usdToEur
+                    )}`
+                  : "••••••"}
+              </span>
+
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginTop: 6,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowRealizedAmounts(
+                      (current) =>
+                        !current
+                    )
+                  }
+                  aria-label={
+                    showRealizedAmounts
+                      ? "Masquer les gains réalisés"
+                      : "Afficher les gains réalisés"
+                  }
+                  title={
+                    showRealizedAmounts
+                      ? "Masquer les gains"
+                      : "Afficher les gains"
+                  }
+                  style={{
+                    width: 38,
+                    height: 38,
+                    display: "grid",
+                    placeItems:
+                      "center",
+                    flexShrink: 0,
+                    padding: 0,
+                    border:
+                      "1px solid rgba(88,200,62,.36)",
+                    borderRadius: 10,
+                    background:
+                      "#0b2117",
+                    color:
+                      "#b9e9b0",
+                    fontSize: 18,
+                    fontWeight: 900,
+                    cursor:
+                      "pointer",
+                  }}
+                >
+                  {showRealizedAmounts
+                    ? "◉"
+                    : "◌"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowRealizedDetails(
+                      true
+                    )
+                  }
+                  style={{
+                    flex: 1,
+                    minHeight: 38,
+                    padding:
+                      "8px 12px",
+                    border:
+                      "1px solid rgba(213,167,75,.45)",
+                    borderRadius: 10,
+                    background:
+                      "rgba(146,102,24,.10)",
+                    color:
+                      "#efd08a",
+                    fontWeight: 800,
+                    cursor:
+                      "pointer",
+                  }}
+                >
+                  Historique
+                </button>
+              </div>
             </div>
-
-<div style={styles.summaryCard}>
-  <span style={styles.summaryLabel}>
-    Bénéfice total
-  </span>
-
-  <strong
-    style={{
-      ...styles.summaryValue,
-      color:
-        profitUSD >= 0
-          ? "#4ade80"
-          : "#fb7185",
-    }}
-  >
-    {showAmounts
-      ? `${profitUSD >= 0 ? "+" : ""}${formatUSD(
-          profitUSD
-        )}`
-      : "••••••"}
-  </strong>
-
-  <span
-    style={{
-      ...styles.summarySecondary,
-      color:
-        profitEUR >= 0
-          ? "#4ade80"
-          : "#fb7185",
-    }}
-  >
-    {showAmounts
-      ? `${profitEUR >= 0 ? "+" : ""}${formatEUR(
-          profitEUR
-        )}`
-      : "••••••"}
-  </span>
-</div>
-
-<div
-  style={{
-    ...styles.summaryCard,
-    cursor: "pointer",
-  }}
-onClick={() => setShowRealizedDetails((current) => !current)}
->
-  <span style={styles.summaryLabel}>
-    Gains réalisés
-  </span>
-
-  {showRealizedDetails ? (
-    <>
-      <strong
-        style={{
-          ...styles.summaryValue,
-          color: realizedGainUSD >= 0 ? "#4ade80" : "#fb7185",
-        }}
-      >
-        {showAmounts
-          ? `${realizedGainUSD >= 0 ? "+" : ""}${formatUSD(
-              realizedGainUSD
-            )}`
-          : "••••••"}
-      </strong>
-
-      <span
-        style={{
-          ...styles.summarySecondary,
-          color: realizedGainUSD >= 0 ? "#4ade80" : "#fb7185",
-        }}
-      >
-        {showAmounts
-          ? `${realizedGainUSD >= 0 ? "+" : ""}${formatEUR(
-              realizedGainUSD * usdToEur
-            )}`
-          : "••••••"}
-      </span>
-    </>
-  ) : (
-    <strong
-      style={{
-        ...styles.summaryValue,
-        color: "#4ade80",
-        fontSize: 15,
-      }}
-    >
-      Cliquez
-    </strong>
-  )}  
-</div>
           </div>
         </section>
-             </div>
+      </div>
 
-      {editingAsset && (
-        <div style={styles.modalOverlay}>
-          <div style={styles.modal}>
-            <div style={styles.modalHeader}>
+      {showRealizedDetails && (
+        <div
+          style={styles.modalOverlay}
+        >
+          <div
+            style={{
+              ...styles.modal,
+              maxWidth: 760,
+            }}
+          >
+            <div
+              style={styles.modalHeader}
+            >
               <div>
-                <p style={styles.modalEyebrow}>
-                  Nouvelle transaction
+                <p
+                  style={
+                    styles.modalEyebrow
+                  }
+                >
+                  Portefeuille
                 </p>
-                <h2 style={styles.modalTitle}>{editingAsset.name}</h2>
+
+                <h2
+                  style={
+                    styles.modalTitle
+                  }
+                >
+                  Historique des gains
+                  réalisés
+                </h2>
               </div>
+
               <button
                 type="button"
-                style={styles.closeButton}
-                onClick={closeTransactionForm}
+                style={
+                  styles.closeButton
+                }
+                onClick={() =>
+                  setShowRealizedDetails(
+                    false
+                  )
+                }
+                aria-label="Fermer l’historique"
               >
                 ×
               </button>
             </div>
 
-            <div style={styles.transactionTabs}>
+            {realizedGainDetails.length ===
+            0 ? (
+              <div
+                style={
+                  styles.historyEmpty
+                }
+              >
+                Aucune vente réalisée pour
+                le moment.
+              </div>
+            ) : (
+                            <div
+                style={{
+                  width: "100%",
+                  overflowX: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    width: "100%",
+                    minWidth: 0,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns:
+                        "1.35fr 1fr 1fr 1.25fr",
+                      gap: 12,
+                      padding:
+                        "0 12px 10px",
+                      borderBottom:
+                        "1px solid rgba(76,89,81,.60)",
+                      color:
+                        "#8e9891",
+                      fontSize: 12,
+                      fontWeight: 900,
+                      textTransform:
+                        "uppercase",
+                      letterSpacing:
+                        0.6,
+                    }}
+                  >
+                    <span>Date</span>
+                    <span>Token</span>
+                    <span>
+                      Quantité
+                    </span>
+
+                    <span
+                      style={{
+                        textAlign:
+                          "right",
+                      }}
+                    >
+                      Gain-Perte
+                    </span>
+                  </div>
+
+                  {realizedGainDetails.map(
+                    (transaction) => {
+                      const asset =
+                        assets.find(
+                          (item) =>
+                            item.id ===
+                            transaction.crypto
+                        );
+
+                      const tokenName =
+                        asset?.symbol ||
+                        asset?.name ||
+                        String(
+                          transaction.crypto ||
+                            "—"
+                        ).toUpperCase();
+
+                      return (
+                        <div
+                          key={
+                            transaction.id
+                          }
+                          style={{
+                            display:
+                              "grid",
+                            gridTemplateColumns:
+                              "1.35fr 1fr 1fr 1.25fr",
+                            alignItems:
+                              "center",
+                            gap: 12,
+                            padding:
+                              "13px 12px",
+                            borderBottom:
+                              "1px solid rgba(76,89,81,.38)",
+                            color:
+                              "#dce4de",
+                            fontSize: 13,
+                          }}
+                        >
+                          <span>
+                            {transaction.created_at
+                              ? new Intl.DateTimeFormat(
+                                  "fr-FR",
+                                  {
+                                    day: "2-digit",
+                                    month:
+                                      "2-digit",
+                                    year: "numeric",
+                                    hour: "2-digit",
+                                    minute:
+                                      "2-digit",
+                                  }
+                                ).format(
+                                  new Date(
+                                    transaction.created_at
+                                  )
+                                )
+                              : "—"}
+                          </span>
+
+                          <strong
+                            style={{
+                              color:
+                                "#efd08a",
+                              overflowWrap:
+                                "anywhere",
+                            }}
+                          >
+                            {tokenName}
+                          </strong>
+
+                          <span>
+                            {formatNumber(
+                              transaction.quantity
+                            )}
+                          </span>
+
+                          <strong
+                            style={{
+                              textAlign:
+                                "right",
+                              color:
+                                transaction.gain >=
+                                0
+                                  ? "#4ade80"
+                                  : "#fb7185",
+                            }}
+                          >
+                            {transaction.gain >=
+                            0
+                              ? "+"
+                              : ""}
+                            {formatUSD(
+                              transaction.gain
+                            )}
+                          </strong>
+                        </div>
+                      );
+                    }
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {editingAsset && (
+        <div
+          style={styles.modalOverlay}
+        >
+          <div style={styles.modal}>
+            <div
+              style={styles.modalHeader}
+            >
+              <div>
+                <p
+                  style={
+                    styles.modalEyebrow
+                  }
+                >
+                  Nouvelle transaction
+                </p>
+
+                <h2
+                  style={
+                    styles.modalTitle
+                  }
+                >
+                  {editingAsset.name}
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                style={
+                  styles.closeButton
+                }
+                onClick={
+                  closeTransactionForm
+                }
+              >
+                ×
+              </button>
+            </div>
+
+            <div
+              style={
+                styles.transactionTabs
+              }
+            >
               <button
                 type="button"
                 style={{
                   ...styles.transactionTab,
-                  ...(transactionType === "purchase"
+                  ...(transactionType ===
+                  "purchase"
                     ? styles.transactionTabActive
                     : {}),
                 }}
                 onClick={() => {
-                  setTransactionType("purchase");
-                  setTransactionMessage("");
+                  setTransactionType(
+                    "purchase"
+                  );
+
+                  setTransactionMessage(
+                    ""
+                  );
                 }}
               >
                 Achat
               </button>
+
               <button
                 type="button"
                 style={{
                   ...styles.transactionTab,
-                  ...(transactionType === "sale"
+                  ...(transactionType ===
+                  "sale"
                     ? styles.transactionTabSaleActive
                     : {}),
                 }}
                 onClick={() => {
-                  setTransactionType("sale");
-                  setTransactionMessage("");
+                  setTransactionType(
+                    "sale"
+                  );
+
+                  setTransactionMessage(
+                    ""
+                  );
                 }}
               >
                 Vente
               </button>
             </div>
 
-            <div style={styles.currentPositionBox}>
-              <div style={styles.line}>
-                <span style={styles.lineLabel}>Quantité actuelle</span>
-                <strong style={styles.lineValue}>
-                  {formatNumber(editingAsset.quantity)}
+            <div
+              style={
+                styles.currentPositionBox
+              }
+            >
+              <div
+                style={styles.line}
+              >
+                <span
+                  style={
+                    styles.lineLabel
+                  }
+                >
+                  Quantité actuelle
+                </span>
+
+                <strong
+                  style={
+                    styles.lineValue
+                  }
+                >
+                  {formatNumber(
+                    editingAsset.quantity
+                  )}
                 </strong>
               </div>
-              <div style={styles.line}>
-                <span style={styles.lineLabel}>Prix moyen actuel</span>
-                <strong style={styles.lineValue}>
-                  {formatUSD(editingAsset.buyPrice, true)}
+
+              <div
+                style={styles.line}
+              >
+                <span
+                  style={
+                    styles.lineLabel
+                  }
+                >
+                  Prix moyen actuel
+                </span>
+
+                <strong
+                  style={
+                    styles.lineValue
+                  }
+                >
+                  {formatUSD(
+                    editingAsset.buyPrice,
+                    true
+                  )}
                 </strong>
               </div>
             </div>
 
-            {transactionType === "sale" && (
-              <div style={styles.saleInformationBox}>
-                Indique uniquement la quantité vendue. Le prix moyen des
-                tokens restants restera inchangé.
+            {transactionType ===
+              "sale" && (
+              <div
+                style={
+                  styles.saleInformationBox
+                }
+              >
+                Indique uniquement la
+                quantité vendue. Le prix
+                moyen des tokens restants
+                restera inchangé.
               </div>
             )}
 
-            <div style={styles.modalFields}>
+            <div
+              style={styles.modalFields}
+            >
               <div>
-                <label style={styles.label}>
-                  {transactionType === "purchase"
+                <label
+                  style={styles.label}
+                >
+                  {transactionType ===
+                  "purchase"
                     ? "Quantité achetée"
                     : "Quantité vendue"}
                 </label>
+
                 <input
                   style={styles.input}
                   type="number"
                   min="0"
                   max={
-                    transactionType === "sale"
+                    transactionType ===
+                    "sale"
                       ? editingAsset.quantity
                       : undefined
                   }
                   step="any"
                   placeholder="Quantité"
-                  value={transactionForm.quantity}
+                  value={
+                    transactionForm.quantity
+                  }
                   onChange={(event) =>
                     setTransactionForm({
                       ...transactionForm,
-                      quantity: event.target.value,
+                      quantity:
+                        event.target.value,
                     })
                   }
                 />
               </div>
 
-            {(transactionType === "purchase" || transactionType === "sale") && (
-  <div>
-    <label style={styles.label}>
-      {transactionType === "purchase"
-        ? "Prix du nouvel achat"
-        : "Prix de vente"}
-    </label>
+              <div>
+                <label
+                  style={styles.label}
+                >
+                  {transactionType ===
+                  "purchase"
+                    ? "Prix du nouvel achat"
+                    : "Prix de vente"}
+                </label>
 
-    <input
-      style={styles.input}
-      type="number"
-      min="0"
-      step="any"
-      placeholder={
-        transactionType === "purchase"
-          ? "Prix unitaire en USD"
-          : "Prix de vente unitaire en USD"
-      }
-      value={transactionForm.unitPrice}
-      onChange={(event) =>
-        setTransactionForm({
-          ...transactionForm,
-          unitPrice: event.target.value,
-        })
-      }
-    />
-  </div>
-)}  
+                <input
+                  style={styles.input}
+                  type="number"
+                  min="0"
+                  step="any"
+                  placeholder={
+                    transactionType ===
+                    "purchase"
+                      ? "Prix unitaire en USD"
+                      : "Prix de vente unitaire en USD"
+                  }
+                  value={
+                    transactionForm.unitPrice
+                  }
+                  onChange={(event) =>
+                    setTransactionForm({
+                      ...transactionForm,
+                      unitPrice:
+                        event.target.value,
+                    })
+                  }
+                />
+              </div>
             </div>
 
-            {Number(transactionForm.quantity) > 0 &&
-              (transactionType === "sale" ||
-                Number(transactionForm.unitPrice) > 0) && (
-                <div style={styles.previewBox}>
-                  <span style={styles.previewLabel}>
-                    {transactionType === "purchase"
+            {Number(
+              transactionForm.quantity
+            ) > 0 &&
+              (transactionType ===
+                "sale" ||
+                Number(
+                  transactionForm.unitPrice
+                ) > 0) && (
+                <div
+                  style={
+                    styles.previewBox
+                  }
+                >
+                  <span
+                    style={
+                      styles.previewLabel
+                    }
+                  >
+                    {transactionType ===
+                    "purchase"
                       ? "Nouveau prix moyen estimé"
                       : "Quantité restante après la vente"}
                   </span>
-                  <strong style={styles.previewValue}>
-                    {transactionType === "purchase"
+
+                  <strong
+                    style={
+                      styles.previewValue
+                    }
+                  >
+                    {transactionType ===
+                    "purchase"
                       ? formatUSD(
-                          (editingAsset.quantity * editingAsset.buyPrice +
-                            Number(transactionForm.quantity) *
-                              Number(transactionForm.unitPrice)) /
+                          (editingAsset.quantity *
+                            editingAsset.buyPrice +
+                            Number(
+                              transactionForm.quantity
+                            ) *
+                              Number(
+                                transactionForm.unitPrice
+                              )) /
                             (editingAsset.quantity +
-                              Number(transactionForm.quantity)),
+                              Number(
+                                transactionForm.quantity
+                              )),
                           true
                         )
                       : formatNumber(
                           Math.max(
                             0,
                             editingAsset.quantity -
-                              Number(transactionForm.quantity)
+                              Number(
+                                transactionForm.quantity
+                              )
                           )
                         )}
                   </strong>
-                  {transactionType === "sale" && (
-                    <span style={styles.previewHint}>
-                      Le prix moyen d’achat restant demeure inchangé.
+
+                  {transactionType ===
+                    "sale" && (
+                    <span
+                      style={
+                        styles.previewHint
+                      }
+                    >
+                      Le prix moyen d’achat
+                      restant demeure
+                      inchangé.
                     </span>
                   )}
                 </div>
               )}
 
             {transactionMessage && (
-              <div style={styles.purchaseMessage}>
+              <div
+                style={
+                  styles.purchaseMessage
+                }
+              >
                 {transactionMessage}
               </div>
             )}
 
-            <div style={styles.modalActions}>
+            <div
+              style={
+                styles.modalActions
+              }
+            >
               <button
                 type="button"
-                style={styles.cancelButton}
-                onClick={closeTransactionForm}
+                style={
+                  styles.cancelButton
+                }
+                onClick={
+                  closeTransactionForm
+                }
               >
                 Fermer
               </button>
+
               <button
                 type="button"
                 style={{
                   ...styles.confirmButton,
-                  ...(transactionType === "sale"
+                  ...(transactionType ===
+                  "sale"
                     ? styles.confirmSaleButton
                     : {}),
-                  opacity: isSavingTransaction ? 0.65 : 1,
-                  cursor: isSavingTransaction ? "wait" : "pointer",
+                  opacity:
+                    isSavingTransaction
+                      ? 0.65
+                      : 1,
+                  cursor:
+                    isSavingTransaction
+                      ? "wait"
+                      : "pointer",
                 }}
-                disabled={isSavingTransaction}
-                onClick={saveTransaction}
+                disabled={
+                  isSavingTransaction
+                }
+                onClick={
+                  saveTransaction
+                }
               >
                 {isSavingTransaction
                   ? "Enregistrement..."
-                  : transactionType === "purchase"
+                  : transactionType ===
+                    "purchase"
                   ? "Enregistrer l’achat"
                   : "Enregistrer la vente"}
               </button>
@@ -2033,218 +3624,294 @@ onClick={() => setShowRealizedDetails((current) => !current)}
       )}
 
       {historyAsset && (
-        <div style={styles.modalOverlay}>
-          <div style={{ ...styles.modal, maxWidth: 720 }}>
-            <div style={styles.modalHeader}>
+        <div
+          style={styles.modalOverlay}
+        >
+          <div
+            style={{
+              ...styles.modal,
+              maxWidth: 720,
+            }}
+          >
+            <div
+              style={styles.modalHeader}
+            >
               <div>
-                <p style={styles.modalEyebrow}>Historique détaillé</p>
-                <h2 style={styles.modalTitle}>{historyAsset.name}</h2>
+                <p
+                  style={
+                    styles.modalEyebrow
+                  }
+                >
+                  Historique détaillé
+                </p>
+
+                <h2
+                  style={
+                    styles.modalTitle
+                  }
+                >
+                  {historyAsset.name}
+                </h2>
               </div>
+
               <button
                 type="button"
-                style={styles.closeButton}
+                style={
+                  styles.closeButton
+                }
                 onClick={closeHistory}
               >
                 ×
               </button>
             </div>
-{TEST_MODE_ENABLED && historyAsset?.isTest && (
-  <button
-    type="button"
-    onClick={() => clearTestData(historyAsset)}
-    style={{
-      width: "100%",
-      marginBottom: 16,
-      padding: "10px 14px",
-      borderRadius: 10,
-      border: "1px solid rgba(251, 113, 133, 0.45)",
-      background: "rgba(251, 113, 133, 0.08)",
-      color: "#fda4af",
-      fontWeight: 700,
-      cursor: "pointer",
-    }}
-  >
-    Effacer ce test
-  </button>
-)}
+
             {isLoadingHistory ? (
-              <div style={styles.historyEmpty}>Chargement...</div>
-            ) : historyItems.length === 0 ? (
-              <div style={styles.historyEmpty}>
-                Aucun historique détaillé. Les positions créées avant cette
-                mise à jour ne disposent pas encore de transactions
-                individuelles.
+              <div
+                style={
+                  styles.historyEmpty
+                }
+              >
+                Chargement...
+              </div>
+            ) : historyItems.length ===
+              0 ? (
+              <div
+                style={
+                  styles.historyEmpty
+                }
+              >
+                Aucun historique détaillé.
+                Les positions créées avant
+                cette mise à jour ne
+                disposent pas encore de
+                transactions individuelles.
               </div>
             ) : (
-              <div style={styles.historyList}>
-             {(() => {
-  const realizedGainTotal = historyItems.reduce(
-    (total, transaction) => {
-      if (transaction.type !== "sale") {
-        return total;
-      }
-
-      const realizedGain =
-        (Number(transaction.unit_price || 0) -
-          Number(transaction.average_price_before || 0)) *
-        Number(transaction.quantity || 0);
-
-      return total + realizedGain;
-    },
-    0
-  );
-
-  return (
-    <div style={styles.currentPositionBox}>
-      <div style={styles.line}>
-        <span style={styles.lineLabel}>
-          Gains réalisés cumulés
-        </span>
-
-        <strong
-          style={{
-            ...styles.lineValue,
-            color:
-              realizedGainTotal >= 0
-                ? "#4ade80"
-                : "#fb7185",
-          }}
-        >
-          {realizedGainTotal >= 0 ? "+" : ""}
-          {formatUSD(realizedGainTotal)}
-        </strong>
-      </div>
-    </div>
-  );
-})()}   
-            {historyItems.map((transaction, index) => {
-  const canUndo = index === 0;
-  const isPurchase = transaction.type === "purchase";
-
-  const realizedGain = !isPurchase
-    ? (Number(transaction.unit_price || 0) -
-        Number(transaction.average_price_before || 0)) *
-      Number(transaction.quantity || 0)
-    : 0;
-
-  return (
-    <div key={transaction.id} style={styles.historyItem}>
-      <div style={styles.historyTopRow}>
-        <span
-          style={{
-            ...styles.historyType,
-            color: isPurchase ? "#86efac" : "#fda4af",
-            background: isPurchase
-              ? "rgba(34,197,94,.10)"
-              : "rgba(244,63,94,.10)",
-          }}
-        >
-          {isPurchase ? "Achat" : "Vente"}
-        </span>
-
-        <span style={styles.historyDate}>
-          {new Intl.DateTimeFormat("fr-FR", {
-            dateStyle: "medium",
-            timeStyle: "short",
-          }).format(new Date(transaction.created_at))}
-        </span>
-      </div>
-
-      <div style={styles.historyDetails}>
-        <span>
-          Quantité :{" "}
-          <strong>{formatNumber(transaction.quantity)}</strong>
-        </span>
-
-        {isPurchase ? (
-          <span>
-            Prix d’achat :{" "}
-            <strong>
-              {formatUSD(transaction.unit_price, true)}
-            </strong>
-          </span>
-        ) : (
-          <>
-            <span>
-              Prix de vente :{" "}
-              <strong>
-                {formatUSD(transaction.unit_price, true)}
-              </strong>
-            </span>
-
-            <span>
-              Gain réalisé :{" "}
-              <strong
-                style={{
-                  color:
-                    realizedGain >= 0
-                      ? "#4ade80"
-                      : "#fb7185",
-                }}
+              <div
+                style={styles.historyList}
               >
-                {realizedGain >= 0 ? "+" : ""}
-                {formatUSD(realizedGain)}
-              </strong>
-            </span>
-          </>
-        )}
+                
 
-        <span>
-          Position :{" "}
-          <strong>
-            {formatNumber(transaction.quantity_before)}
-          </strong>{" "}
-          →{" "}
-          <strong>
-            {formatNumber(transaction.quantity_after)}
-          </strong>
-        </span>
+                {historyItems.map(
+                  (
+                    transaction,
+                    index
+                  ) => {
+                    const canUndo =
+                      index === 0;
 
-        <span>
-          {isPurchase
-            ? "Prix moyen après : "
-            : "Prix moyen restant : "}
-          <strong>
-            {formatUSD(
-              transaction.average_price_after,
-              true
-            )}
-          </strong>
-        </span>
-      </div>
+                    const isPurchase =
+                      transaction.type ===
+                      "purchase";
 
-      <button
-        type="button"
-        style={{
-          ...styles.undoButton,
-          opacity: canUndo ? 1 : 0.45,
-          cursor: canUndo ? "pointer" : "not-allowed",
-        }}
-        disabled={
-          !canUndo ||
-          undoingTransactionId === transaction.id
-        }
-        onClick={() => undoTransaction(transaction)}
-        title={
-          canUndo
-            ? "Annuler la dernière transaction"
-            : "Seule la transaction la plus récente peut être annulée"
-        }
-      >
-        {undoingTransactionId === transaction.id
-          ? "Annulation..."
-          : canUndo
-          ? "Annuler cette transaction"
-          : "Transaction verrouillée"}
-      </button>
-    </div>
-  );
-})}    
+                    const realizedGain =
+                      !isPurchase
+                        ? (Number(
+                            transaction.unit_price ||
+                              0
+                          ) -
+                            Number(
+                              transaction.average_price_before ||
+                                0
+                            )) *
+                          Number(
+                            transaction.quantity ||
+                              0
+                          )
+                        : 0;
+
+                    return (
+                      <div
+                        key={
+                          transaction.id
+                        }
+                        style={
+                          styles.historyItem
+                        }
+                      >
+                        <div
+                          style={
+                            styles.historyTopRow
+                          }
+                        >
+                          <span
+                            style={{
+                              ...styles.historyType,
+                              color:
+                                isPurchase
+                                  ? "#86efac"
+                                  : "#fda4af",
+                              background:
+                                isPurchase
+                                  ? "rgba(34,197,94,.10)"
+                                  : "rgba(244,63,94,.10)",
+                            }}
+                          >
+                            {isPurchase
+                              ? "Achat"
+                              : "Vente"}
+                          </span>
+
+                          <span
+                            style={
+                              styles.historyDate
+                            }
+                          >
+                            {new Intl.DateTimeFormat(
+                              "fr-FR",
+                              {
+                                dateStyle:
+                                  "medium",
+                                timeStyle:
+                                  "short",
+                              }
+                            ).format(
+                              new Date(
+                                transaction.created_at
+                              )
+                            )}
+                          </span>
+                        </div>
+
+                        <div
+                          style={
+                            styles.historyDetails
+                          }
+                        >
+                          <span>
+                            Quantité :{" "}
+                            <strong>
+                              {formatNumber(
+                                transaction.quantity
+                              )}
+                            </strong>
+                          </span>
+
+                          {isPurchase ? (
+                            <span>
+                              Prix d’achat :{" "}
+                              <strong>
+                                {formatUSD(
+                                  transaction.unit_price,
+                                  true
+                                )}
+                              </strong>
+                            </span>
+                          ) : (
+                            <>
+                              <span>
+                                Prix de vente :{" "}
+                                <strong>
+                                  {formatUSD(
+                                    transaction.unit_price,
+                                    true
+                                  )}
+                                </strong>
+                              </span>
+
+                              <span>
+                                Gain réalisé :{" "}
+                                <strong
+                                  style={{
+                                    color:
+                                      realizedGain >=
+                                      0
+                                        ? "#4ade80"
+                                        : "#fb7185",
+                                  }}
+                                >
+                                  {realizedGain >=
+                                  0
+                                    ? "+"
+                                    : ""}
+                                  {formatUSD(
+                                    realizedGain
+                                  )}
+                                </strong>
+                              </span>
+                            </>
+                          )}
+
+                          <span>
+                            Position :{" "}
+                            <strong>
+                              {formatNumber(
+                                transaction.quantity_before
+                              )}
+                            </strong>{" "}
+                            →{" "}
+                            <strong>
+                              {formatNumber(
+                                transaction.quantity_after
+                              )}
+                            </strong>
+                          </span>
+
+                          <span>
+                            {isPurchase
+                              ? "Prix moyen après : "
+                              : "Prix moyen restant : "}
+
+                            <strong>
+                              {formatUSD(
+                                transaction.average_price_after,
+                                true
+                              )}
+                            </strong>
+                          </span>
+                        </div>
+
+                        <button
+                          type="button"
+                          style={{
+                            ...styles.undoButton,
+                            opacity:
+                              canUndo
+                                ? 1
+                                : 0.45,
+                            cursor:
+                              canUndo
+                                ? "pointer"
+                                : "not-allowed",
+                          }}
+                          disabled={
+                            !canUndo ||
+                            undoingTransactionId ===
+                              transaction.id
+                          }
+                          onClick={() =>
+                            undoTransaction(
+                              transaction
+                            )
+                          }
+                          title={
+                            canUndo
+                              ? "Annuler la dernière transaction"
+                              : "Seule la transaction la plus récente peut être annulée"
+                          }
+                        >
+                          {undoingTransactionId ===
+                          transaction.id
+                            ? "Annulation..."
+                            : canUndo
+                            ? "Annuler cette transaction"
+                            : "Transaction verrouillée"}
+                        </button>
+                      </div>
+                    );
+                  }
+                )}
               </div>
             )}
 
             {historyMessage && (
-              <div style={styles.purchaseMessage}>{historyMessage}</div>
+              <div
+                style={
+                  styles.purchaseMessage
+                }
+              >
+                {historyMessage}
+              </div>
             )}
           </div>
         </div>
@@ -2262,6 +3929,7 @@ const responsiveCss = `
   button { transition: transform .18s ease, filter .18s ease, border-color .18s ease, background .18s ease; }
   button:hover { filter: brightness(1.08); }
   button:active { transform: translateY(1px); }
+
   @media (max-width: 720px) {
     .ld-page { padding: 18px 12px 36px !important; }
     .ld-header { align-items: center !important; gap: 14px !important; margin-bottom: 22px !important; }
@@ -2270,14 +3938,15 @@ const responsiveCss = `
     .ld-performance { padding: 18px 14px !important; min-height: 138px !important; }
     .ld-add-section { padding: 18px 14px !important; }
     .ld-form-grid { grid-template-columns: 1fr !important; }
-   .ld-card-grid { grid-template-columns: 1fr !important; }
-.ld-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } 
-    /* Cartes de positions : gabarit mobile compact et sans débordement. */
+    .ld-card-grid { grid-template-columns: 1fr !important; }
+    .ld-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+
     .ld-card-grid {
       width: 100% !important;
       min-width: 0 !important;
       gap: 12px !important;
     }
+
     .ld-crypto-card {
       width: 100% !important;
       max-width: 100% !important;
@@ -2286,83 +3955,104 @@ const responsiveCss = `
       border-radius: 16px !important;
       overflow: hidden !important;
     }
+
     .ld-card-header {
       align-items: center !important;
       gap: 6px !important;
       min-width: 0 !important;
     }
+
     .ld-token-identity {
       flex: 1 1 auto !important;
       min-width: 0 !important;
       gap: 8px !important;
     }
+
     .ld-token-logo {
       width: 40px !important;
       height: 40px !important;
       flex: 0 0 40px !important;
     }
+
     .ld-card-title {
       max-width: 100% !important;
       font-size: 17px !important;
       line-height: 1.15 !important;
     }
+
     .ld-card-symbol {
       margin-top: 2px !important;
       font-size: 10px !important;
     }
+
     .ld-change-badge {
       padding: 6px 7px !important;
       font-size: 11px !important;
       white-space: nowrap !important;
     }
+
     .ld-price-block {
       margin: 8px 0 9px !important;
       gap: 2px !important;
     }
-    .ld-price-label, .ld-profit-label {
+
+    .ld-price-label,
+    .ld-profit-label {
       font-size: 11px !important;
     }
+
     .ld-current-price {
       font-size: 22px !important;
       line-height: 1.15 !important;
       overflow-wrap: anywhere !important;
     }
-    .ld-data-rows { gap: 4px !important; }
+
+    .ld-data-rows {
+      gap: 4px !important;
+    }
+
     .ld-data-line {
       gap: 6px !important;
       min-width: 0 !important;
     }
+
     .ld-line-label {
       flex: 1 1 auto !important;
       min-width: 0 !important;
       font-size: 12px !important;
     }
+
     .ld-line-value {
       flex: 0 1 58% !important;
       min-width: 0 !important;
       font-size: 12px !important;
       overflow-wrap: anywhere !important;
     }
+
     .ld-profit-box {
       align-items: center !important;
       gap: 8px !important;
       margin-top: 8px !important;
       padding-top: 8px !important;
     }
+
     .ld-profit-value {
       font-size: 17px !important;
       overflow-wrap: anywhere !important;
     }
+
     .ld-card-performance {
       flex-shrink: 0 !important;
       font-size: 15px !important;
       white-space: nowrap !important;
     }
+
     .ld-card-actions {
       grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
       gap: 6px !important;
       margin-top: 8px !important;
     }
+
     .ld-card-action {
       width: 100% !important;
       min-width: 0 !important;
@@ -2372,7 +4062,7 @@ const responsiveCss = `
       white-space: nowrap !important;
     }
   }
-    
+
   @media (max-width: 500px) {
     .ld-header { align-items: flex-start !important; }
     .ld-header > div:last-child { width: 82px !important; height: 82px !important; border-radius: 18px !important; }
@@ -2380,11 +4070,12 @@ const responsiveCss = `
     .ld-header p:first-child { font-size: 11px !important; }
     .ld-crypto-card { padding: 11px !important; }
     .ld-card-action { font-size: 12px !important; padding-inline: 4px !important; }
- .ld-summary-grid strong {
-  font-size: 15px !important;
-  white-space: nowrap !important;
-}
+
+    .ld-summary-grid strong {
+      font-size: 15px !important;
+      white-space: nowrap !important;
     }
+  }
 `;
 
 const styles = {
@@ -2397,169 +4088,993 @@ const styles = {
     fontFamily:
       "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
   },
-  container: { width: "100%", maxWidth: 1180, margin: "0 auto" },
+
+  container: {
+    width: "100%",
+    maxWidth: 1180,
+    margin: "0 auto",
+  },
+
   header: {
-    display: "flex", alignItems: "center", justifyContent: "space-between",
-    gap: 24, marginBottom: 28, padding: "0 2px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 24,
+    marginBottom: 28,
+    padding: "0 2px",
   },
-  headerCopy: { minWidth: 0 },
+
+  headerCopy: {
+    minWidth: 0,
+  },
+
   eyebrow: {
-    margin: "0 0 8px", color: "#56c23d", fontSize: 13, fontWeight: 900,
-    letterSpacing: 1.25, textTransform: "uppercase",
+    margin: "0 0 8px",
+    color: "#56c23d",
+    fontSize: 13,
+    fontWeight: 900,
+    letterSpacing: 1.25,
+    textTransform: "uppercase",
   },
+
   title: {
-    margin: 0, fontSize: "clamp(38px, 7vw, 58px)", lineHeight: 0.98,
+    margin: 0,
+    fontSize: "clamp(38px, 7vw, 58px)",
+    lineHeight: 0.98,
     letterSpacing: -1.8,
-    background: "linear-gradient(95deg, #ffcf57 0%, #d89a20 42%, #f8ead0 94%)",
-    WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent",
-    textShadow: "0 0 26px rgba(223, 164, 42, 0.09)",
+    background:
+      "linear-gradient(95deg, #ffcf57 0%, #d89a20 42%, #f8ead0 94%)",
+    WebkitBackgroundClip: "text",
+    backgroundClip: "text",
+    color: "transparent",
+    textShadow:
+      "0 0 26px rgba(223, 164, 42, 0.09)",
   },
-  subtitle: { margin: "14px 0 0", color: "#b7bab7", fontSize: 17, fontWeight: 500 },
+
+  subtitle: {
+    margin: "14px 0 0",
+    color: "#b7bab7",
+    fontSize: 17,
+    fontWeight: 500,
+  },
+
   logoFrame: {
-    width: 132, height: 132, flexShrink: 0, padding: 0, overflow: "hidden",
-    border: "1px solid rgba(213, 167, 75, 0.66)", borderRadius: 28,
-    background: "linear-gradient(145deg, rgba(17, 73, 47, .28), rgba(2, 8, 7, .96))",
-    boxShadow: "0 20px 50px rgba(0,0,0,.38), 0 0 28px rgba(206,151,44,.08)",
+    width: 132,
+    height: 132,
+    flexShrink: 0,
+    padding: 0,
+    overflow: "hidden",
+    border:
+      "1px solid rgba(213, 167, 75, 0.66)",
+    borderRadius: 28,
+    background:
+      "linear-gradient(145deg, rgba(17, 73, 47, .28), rgba(2, 8, 7, .96))",
+    boxShadow:
+      "0 20px 50px rgba(0,0,0,.38), 0 0 28px rgba(206,151,44,.08)",
   },
-  brandLogo: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
-  liveBadge: { display: "none" }, liveDot: { display: "none" },
+
+  brandLogo: {
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+    display: "block",
+  },
+
+  liveBadge: {
+    display: "none",
+  },
+
+  liveDot: {
+    display: "none",
+  },
+
   performanceTopCard: {
-    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-    gap: 8, minHeight: 160, marginBottom: 24, padding: "22px",
-    border: "1px solid rgba(200, 151, 56, 0.72)", borderRadius: 21,
-    background: "radial-gradient(circle at 50% 18%, rgba(25, 119, 68, .16), transparent 54%), linear-gradient(135deg, rgba(4, 31, 23, .84), rgba(2, 11, 10, .95))",
-    boxShadow: "inset 0 1px 0 rgba(255,255,255,.025), 0 22px 55px rgba(0,0,0,.28)", textAlign: "center",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    minHeight: 160,
+    marginBottom: 24,
+    padding: "22px",
+    border:
+      "1px solid rgba(200, 151, 56, 0.72)",
+    borderRadius: 21,
+    background:
+      "radial-gradient(circle at 50% 18%, rgba(25, 119, 68, .16), transparent 54%), linear-gradient(135deg, rgba(4, 31, 23, .84), rgba(2, 11, 10, .95))",
+    boxShadow:
+      "inset 0 1px 0 rgba(255,255,255,.025), 0 22px 55px rgba(0,0,0,.28)",
+    textAlign: "center",
   },
-  performanceTopLabel: { color: "#5fc847", fontSize: 14, fontWeight: 900, textTransform: "uppercase", letterSpacing: .75 },
-  performanceTopValue: { fontSize: "clamp(34px, 7vw, 48px)", lineHeight: 1.05, textShadow: "0 0 22px rgba(77, 211, 54, .22)" },
-  performanceTopDescription: { color: "#c0c3c0", fontSize: 14, fontWeight: 550 },
+
+  performanceTopLabel: {
+    color: "#5fc847",
+    fontSize: 14,
+    fontWeight: 900,
+    textTransform: "uppercase",
+    letterSpacing: 0.75,
+  },
+
+  performanceTopValue: {
+    fontSize:
+      "clamp(34px, 7vw, 48px)",
+    lineHeight: 1.05,
+    textShadow:
+      "0 0 22px rgba(77, 211, 54, .22)",
+  },
+
+  performanceTopDescription: {
+    color: "#c0c3c0",
+    fontSize: 14,
+    fontWeight: 550,
+  },
+
   addSection: {
-    position: "relative", padding: 24, marginBottom: 18,
-    border: "1px solid rgba(97, 105, 100, .48)", borderRadius: 21,
-    background: "linear-gradient(145deg, rgba(5, 17, 15, .98), rgba(3, 11, 10, .96))",
-    boxShadow: "inset 0 1px 0 rgba(255,255,255,.018), 0 22px 60px rgba(0,0,0,.27)",
+    position: "relative",
+    padding: 24,
+    marginBottom: 18,
+    border:
+      "1px solid rgba(97, 105, 100, .48)",
+    borderRadius: 21,
+    background:
+      "linear-gradient(145deg, rgba(5, 17, 15, .98), rgba(3, 11, 10, .96))",
+    boxShadow:
+      "inset 0 1px 0 rgba(255,255,255,.018), 0 22px 60px rgba(0,0,0,.27)",
   },
-  sectionHeading: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, marginBottom: 18 },
-  sectionTitleRow: { display: "flex", alignItems: "center", gap: 15 },
+
+  sectionHeading: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 16,
+    marginBottom: 18,
+  },
+
+  sectionTitleRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 15,
+  },
+
   addIcon: {
-    width: 43, height: 43, display: "grid", placeItems: "center", flexShrink: 0,
-    border: "2px solid #58c83e", borderRadius: "50%", color: "#5ed446", fontSize: 31,
-    fontWeight: 500, lineHeight: 1, boxShadow: "0 0 18px rgba(75, 208, 51, .11)",
+    width: 43,
+    height: 43,
+    display: "grid",
+    placeItems: "center",
+    flexShrink: 0,
+    border: "2px solid #58c83e",
+    borderRadius: "50%",
+    color: "#5ed446",
+    fontSize: 31,
+    fontWeight: 500,
+    lineHeight: 1,
+    boxShadow:
+      "0 0 18px rgba(75, 208, 51, .11)",
   },
-  sectionTitle: { margin: 0, fontSize: 23, color: "#f2d493", letterSpacing: -.25 },
-  sectionDescription: { margin: "5px 0 0", color: "#a7aaa7", fontSize: 14 },
-  searchWrapper: { position: "relative", zIndex: 20 },
-  label: { display: "block", marginBottom: 8, color: "#55c33d", fontSize: 13, fontWeight: 900 },
+
+  sectionTitle: {
+    margin: 0,
+    fontSize: 23,
+    color: "#f2d493",
+    letterSpacing: -0.25,
+  },
+
+  sectionDescription: {
+    margin: "5px 0 0",
+    color: "#a7aaa7",
+    fontSize: 14,
+  },
+
+  searchWrapper: {
+    position: "relative",
+    zIndex: 20,
+  },
+
+  label: {
+    display: "block",
+    marginBottom: 8,
+    color: "#55c33d",
+    fontSize: 13,
+    fontWeight: 900,
+  },
+
   input: {
-    width: "100%", boxSizing: "border-box", padding: "16px 17px",
-    border: "1px solid rgba(78, 92, 84, .56)", borderRadius: 12, outline: "none",
-    background: "rgba(1, 8, 7, .95)", color: "#f3f5f2", fontSize: 16,
-    boxShadow: "inset 0 0 0 1px rgba(191,145,58,.025)", transition: "all .2s ease",
+    width: "100%",
+    boxSizing: "border-box",
+    padding: "16px 17px",
+    border:
+      "1px solid rgba(78, 92, 84, .56)",
+    borderRadius: 12,
+    outline: "none",
+    background:
+      "rgba(1, 8, 7, .95)",
+    color: "#f3f5f2",
+    fontSize: 16,
+    boxShadow:
+      "inset 0 0 0 1px rgba(191,145,58,.025)",
+    transition: "all .2s ease",
   },
-  searchStatus: { marginTop: 8, color: "#9aa19c", fontSize: 13 },
+
+  searchStatus: {
+    marginTop: 8,
+    color: "#9aa19c",
+    fontSize: 13,
+  },
+
   resultsBox: {
-    position: "absolute", top: "calc(100% + 8px)", left: 0, right: 0, maxHeight: 390,
-    overflowY: "auto", padding: 7, border: "1px solid rgba(88, 200, 62, .35)",
-    borderRadius: 14, background: "#03100d", boxShadow: "0 25px 70px rgba(0,0,0,.68)",
+    position: "absolute",
+    top: "calc(100% + 8px)",
+    left: 0,
+    right: 0,
+    maxHeight: 390,
+    overflowY: "auto",
+    padding: 7,
+    border:
+      "1px solid rgba(88, 200, 62, .35)",
+    borderRadius: 14,
+    background: "#03100d",
+    boxShadow:
+      "0 25px 70px rgba(0,0,0,.68)",
   },
-  resultButton: { width: "100%", display: "flex", alignItems: "center", gap: 12, padding: 11, border: "none", borderRadius: 10, background: "transparent", color: "#f8faf8", cursor: "pointer", textAlign: "left" },
-  resultLogo: { width: 38, height: 38, borderRadius: "50%" },
-  resultText: { minWidth: 0, display: "flex", flexDirection: "column", gap: 3, flex: 1 },
-  resultName: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 15 },
-  resultSymbol: { color: "#6fcf58", fontSize: 12, fontWeight: 800 },
-  rank: { color: "#778079", fontSize: 12, whiteSpace: "nowrap" },
-  selectedToken: { display: "flex", alignItems: "center", gap: 12, marginTop: 14, padding: 13, border: "1px solid rgba(86, 198, 63, .45)", borderRadius: 13, background: "rgba(29, 112, 56, .13)" },
-  selectedLogo: { width: 42, height: 42, borderRadius: "50%" },
-  selectedName: { display: "block", fontSize: 16 },
-  selectedSymbol: { display: "block", marginTop: 3, color: "#75cf63", fontSize: 12 },
-  formGrid: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 16, marginTop: 17 },
+
+  resultButton: {
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: 11,
+    border: "none",
+    borderRadius: 10,
+    background: "transparent",
+    color: "#f8faf8",
+    cursor: "pointer",
+    textAlign: "left",
+  },
+
+  resultLogo: {
+    width: 38,
+    height: 38,
+    borderRadius: "50%",
+  },
+
+  resultText: {
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: 3,
+    flex: 1,
+  },
+
+  resultName: {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    fontSize: 15,
+  },
+
+  resultSymbol: {
+    color: "#6fcf58",
+    fontSize: 12,
+    fontWeight: 800,
+  },
+
+  rank: {
+    color: "#778079",
+    fontSize: 12,
+    whiteSpace: "nowrap",
+  },
+
+  selectedToken: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    marginTop: 14,
+    padding: 13,
+    border:
+      "1px solid rgba(86, 198, 63, .45)",
+    borderRadius: 13,
+    background:
+      "rgba(29, 112, 56, .13)",
+  },
+
+  selectedLogo: {
+    width: 42,
+    height: 42,
+    borderRadius: "50%",
+  },
+
+  selectedName: {
+    display: "block",
+    fontSize: 16,
+  },
+
+  selectedSymbol: {
+    display: "block",
+    marginTop: 3,
+    color: "#75cf63",
+    fontSize: 12,
+  },
+
+  formGrid: {
+    display: "grid",
+    gridTemplateColumns:
+      "repeat(2, minmax(0, 1fr))",
+    gap: 16,
+    marginTop: 17,
+  },
+
   addButton: {
-    width: "100%", marginTop: 18, padding: "16px 20px", border: "1px solid rgba(104, 234, 68, .55)",
-    borderRadius: 12, background: "linear-gradient(180deg, #51d53c 0%, #21aa24 52%, #178d1f 100%)",
-    color: "#031006", fontSize: 17, fontWeight: 950,
-    boxShadow: "inset 0 1px 0 rgba(255,255,255,.22), 0 13px 32px rgba(35, 175, 39, .17)", cursor: "pointer",
+    width: "100%",
+    marginTop: 18,
+    padding: "16px 20px",
+    border:
+      "1px solid rgba(104, 234, 68, .55)",
+    borderRadius: 12,
+    background:
+      "linear-gradient(180deg, #51d53c 0%, #21aa24 52%, #178d1f 100%)",
+    color: "#031006",
+    fontSize: 17,
+    fontWeight: 950,
+    boxShadow:
+      "inset 0 1px 0 rgba(255,255,255,.22), 0 13px 32px rgba(35, 175, 39, .17)",
+    cursor: "pointer",
   },
-  message: { marginBottom: 18, padding: "13px 16px", border: "1px solid rgba(84, 199, 61, .36)", borderRadius: 13, background: "rgba(28, 104, 51, .19)", color: "#bdecb3", fontSize: 14, fontWeight: 700 },
-  portfolioSection: { marginTop: 24 },
-  cardGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16 },
-  cryptoCard: { padding: 19, border: "1px solid rgba(76, 89, 81, .55)", borderRadius: 18, background: "linear-gradient(145deg, rgba(4,18,14,.97), rgba(2,10,8,.97))", boxShadow: "0 18px 45px rgba(0,0,0,.25)" },
-  cardHeader: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
-  tokenIdentity: { display: "flex", alignItems: "center", gap: 12, minWidth: 0 },
-  tokenLogo: { width: 48, height: 48, borderRadius: "50%", border: "1px solid rgba(214,166,68,.25)" },
-  logoPlaceholder: { width: 48, height: 48, display: "grid", placeItems: "center", borderRadius: "50%", background: "#10271d", color: "#e5bd61", fontSize: 20, fontWeight: 900 },
-  cardTitle: { margin: 0, overflow: "hidden", textOverflow: "ellipsis", fontSize: 20, whiteSpace: "nowrap", color: "#f1d18a" },
-  cardSymbol: { display: "block", marginTop: 4, color: "#77827b", fontSize: 12, fontWeight: 900, textTransform: "uppercase" },
-  changeBadge: { flexShrink: 0, padding: "7px 9px", borderRadius: 9, fontSize: 12, fontWeight: 900 },
-  priceBlock: { display: "flex", flexDirection: "column", gap: 5, margin: "20px 0" },
-  priceLabel: { color: "#8e9891", fontSize: 12, fontWeight: 700 },
-  currentPrice: { fontSize: 26, color: "#f5f6f4" },
-  dataRows: { display: "flex", flexDirection: "column", gap: 10 },
-  line: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  lineLabel: { color: "#929a95", fontSize: 14 },
-  lineValue: { color: "#e0e5e1", fontSize: 14, textAlign: "right" },
-  profitBox: { display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 14, marginTop: 17, paddingTop: 16, borderTop: "1px solid rgba(78,91,83,.5)" },
-  profitLabel: { display: "block", marginBottom: 5, color: "#8e9891", fontSize: 12 },
-  profitValue: { display: "block", fontSize: 20 }, performance: { fontSize: 17 },
-  cardActions: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 9, marginTop: 17 },
-  editButton: { padding: "12px 13px", border: "1px solid rgba(87,199,63,.58)", borderRadius: 10, background: "rgba(38,117,53,.15)", color: "#81dc6d", fontWeight: 800, cursor: "pointer" },
-  sellButton: { padding: "12px 13px", border: "1px solid rgba(251,113,133,.48)", borderRadius: 10, background: "rgba(190,24,93,.10)", color: "#fda4af", fontWeight: 800, cursor: "pointer" },
-  historyButton: { padding: "12px 13px", border: "1px solid rgba(213,167,75,.45)", borderRadius: 10, background: "rgba(146,102,24,.10)", color: "#efd08a", fontWeight: 800, cursor: "pointer" },
-  deleteButton: { padding: "12px 13px", border: "1px solid rgba(239,68,68,.4)", borderRadius: 10, background: "rgba(239,68,68,.09)", color: "#fda4af", fontWeight: 800, cursor: "pointer" },
-  emptyState: { padding: "50px 20px", border: "1px dashed rgba(87,104,94,.62)", borderRadius: 18, background: "rgba(4,18,14,.55)", textAlign: "center" },
-  emptyIcon: { width: 58, height: 58, display: "grid", placeItems: "center", margin: "0 auto 14px", borderRadius: "50%", background: "#10271d", color: "#dba93e", fontSize: 28, fontWeight: 900 },
-  emptyTitle: { margin: 0, fontSize: 20, color: "#f1d18a" },
-  emptyText: { maxWidth: 430, margin: "9px auto 0", color: "#929a95", fontSize: 14, lineHeight: 1.6 },
-  bottomSummarySection: { marginTop: 28, padding: 22, border: "1px solid rgba(79,92,84,.55)", borderRadius: 20, background: "linear-gradient(145deg, rgba(4,18,14,.98), rgba(2,10,8,.98))", boxShadow: "0 22px 60px rgba(0,0,0,.24)" },
-  bottomSummaryHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, marginBottom: 18 },
-  visibilityButton: { display: "flex", alignItems: "center", justifyContent: "center", gap: 8, flexShrink: 0, padding: "10px 14px", border: "1px solid rgba(88,200,62,.36)", borderRadius: 999, background: "#0b2117", color: "#b9e9b0", fontSize: 13, fontWeight: 800, cursor: "pointer" },
-  visibilityIcon: { fontSize: 16, lineHeight: 1 },
+
+  message: {
+    marginBottom: 18,
+    padding: "13px 16px",
+    border:
+      "1px solid rgba(84, 199, 61, .36)",
+    borderRadius: 13,
+    background:
+      "rgba(28, 104, 51, .19)",
+    color: "#bdecb3",
+    fontSize: 14,
+    fontWeight: 700,
+  },
+
+  portfolioSection: {
+    marginTop: 24,
+  },
+
+  cardGrid: {
+    display: "grid",
+    gridTemplateColumns:
+      "repeat(auto-fit, minmax(300px, 1fr))",
+    gap: 16,
+  },
+
+  cryptoCard: {
+    padding: 19,
+    border:
+      "1px solid rgba(76, 89, 81, .55)",
+    borderRadius: 18,
+    background:
+      "linear-gradient(145deg, rgba(4,18,14,.97), rgba(2,10,8,.97))",
+    boxShadow:
+      "0 18px 45px rgba(0,0,0,.25)",
+  },
+
+  cardHeader: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+
+  tokenIdentity: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    minWidth: 0,
+  },
+
+  tokenLogo: {
+    width: 48,
+    height: 48,
+    borderRadius: "50%",
+    border:
+      "1px solid rgba(214,166,68,.25)",
+  },
+
+  logoPlaceholder: {
+    width: 48,
+    height: 48,
+    display: "grid",
+    placeItems: "center",
+    borderRadius: "50%",
+    background: "#10271d",
+    color: "#e5bd61",
+    fontSize: 20,
+    fontWeight: 900,
+  },
+
+  cardTitle: {
+    margin: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    fontSize: 20,
+    whiteSpace: "nowrap",
+    color: "#f1d18a",
+  },
+
+  cardSymbol: {
+    display: "block",
+    marginTop: 4,
+    color: "#77827b",
+    fontSize: 12,
+    fontWeight: 900,
+    textTransform: "uppercase",
+  },
+
+  changeBadge: {
+    flexShrink: 0,
+    padding: "7px 9px",
+    borderRadius: 9,
+    fontSize: 12,
+    fontWeight: 900,
+  },
+
+  priceBlock: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 5,
+    margin: "20px 0",
+  },
+
+  priceLabel: {
+    color: "#8e9891",
+    fontSize: 12,
+    fontWeight: 700,
+  },
+
+  currentPrice: {
+    fontSize: 26,
+    color: "#f5f6f4",
+  },
+
+  dataRows: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+
+  line: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+
+  lineLabel: {
+    color: "#929a95",
+    fontSize: 14,
+  },
+
+  lineValue: {
+    color: "#e0e5e1",
+    fontSize: 14,
+    textAlign: "right",
+  },
+
+  profitBox: {
+    display: "flex",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: 14,
+    marginTop: 17,
+    paddingTop: 16,
+    borderTop:
+      "1px solid rgba(78,91,83,.5)",
+  },
+
+  profitLabel: {
+    display: "block",
+    marginBottom: 5,
+    color: "#8e9891",
+    fontSize: 12,
+  },
+
+  profitValue: {
+    display: "block",
+    fontSize: 20,
+  },
+
+  performance: {
+    fontSize: 17,
+  },
+
+  cardActions: {
+    display: "grid",
+    gridTemplateColumns:
+      "repeat(2, minmax(0, 1fr))",
+    gap: 9,
+    marginTop: 17,
+  },
+
+  editButton: {
+    padding: "12px 13px",
+    border:
+      "1px solid rgba(87,199,63,.58)",
+    borderRadius: 10,
+    background:
+      "rgba(38,117,53,.15)",
+    color: "#81dc6d",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+
+  sellButton: {
+    padding: "12px 13px",
+    border:
+      "1px solid rgba(251,113,133,.48)",
+    borderRadius: 10,
+    background:
+      "rgba(190,24,93,.10)",
+    color: "#fda4af",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+
+  historyButton: {
+    padding: "12px 13px",
+    border:
+      "1px solid rgba(213,167,75,.45)",
+    borderRadius: 10,
+    background:
+      "rgba(146,102,24,.10)",
+    color: "#efd08a",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+
+  deleteButton: {
+    padding: "12px 13px",
+    border:
+      "1px solid rgba(239,68,68,.4)",
+    borderRadius: 10,
+    background:
+      "rgba(239,68,68,.09)",
+    color: "#fda4af",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+
+  emptyState: {
+    padding: "50px 20px",
+    border:
+      "1px dashed rgba(87,104,94,.62)",
+    borderRadius: 18,
+    background:
+      "rgba(4,18,14,.55)",
+    textAlign: "center",
+  },
+
+  emptyIcon: {
+    width: 58,
+    height: 58,
+    display: "grid",
+    placeItems: "center",
+    margin: "0 auto 14px",
+    borderRadius: "50%",
+    background: "#10271d",
+    color: "#dba93e",
+    fontSize: 28,
+    fontWeight: 900,
+  },
+
+  emptyTitle: {
+    margin: 0,
+    fontSize: 20,
+    color: "#f1d18a",
+  },
+
+  emptyText: {
+    maxWidth: 430,
+    margin: "9px auto 0",
+    color: "#929a95",
+    fontSize: 14,
+    lineHeight: 1.6,
+  },
+
+  bottomSummarySection: {
+    marginTop: 28,
+    padding: 22,
+    border:
+      "1px solid rgba(79,92,84,.55)",
+    borderRadius: 20,
+    background:
+      "linear-gradient(145deg, rgba(4,18,14,.98), rgba(2,10,8,.98))",
+    boxShadow:
+      "0 22px 60px rgba(0,0,0,.24)",
+  },
+
+  bottomSummaryHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 16,
+    marginBottom: 18,
+  },
+
+  visibilityButton: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    flexShrink: 0,
+    padding: "10px 14px",
+    border:
+      "1px solid rgba(88,200,62,.36)",
+    borderRadius: 999,
+    background: "#0b2117",
+    color: "#b9e9b0",
+    fontSize: 13,
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+
+  visibilityIcon: {
+    fontSize: 16,
+    lineHeight: 1,
+  },
+
   summaryGrid: {
-  display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  gap: 12,
-},
-summaryCard: {
-  display: "flex",
-  flexDirection: "column",
-  gap: 6,
-  padding: "14px 16px",
-  minHeight: 105,
-  justifyContent: "center",
-  border: "1px solid rgba(76,89,81,.54)",
-  borderRadius: 16,
-  background: "rgba(3,15,11,.88)",
-  boxShadow: "0 18px 45px rgba(0,0,0,.18)",
-},
-  summaryLabel: { color: "#8e9891", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: .7 },
-  summaryValue: { color: "#f3d58e", fontSize: 26 }, summarySecondary: { color: "#728078", fontSize: 14, fontWeight: 700 },
-  euroSection: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, marginTop: 22, padding: 22, border: "1px solid rgba(76,89,81,.5)", borderRadius: 18, background: "rgba(2,12,9,.8)" },
-  euroLabel: { color: "#929a95", fontSize: 13, fontWeight: 700 }, euroValue: { margin: "7px 0 0", fontSize: 27 }, exchangeRate: { margin: "6px 0 0", color: "#6f7c74", fontSize: 12 }, euroProfit: { textAlign: "right" }, euroProfitValue: { display: "block", marginTop: 7, fontSize: 22 },
-  modalOverlay: { position: "fixed", inset: 0, zIndex: 100, display: "grid", placeItems: "center", padding: 16, background: "rgba(0,6,4,.86)", backdropFilter: "blur(9px)" },
-  modal: { width: "100%", maxWidth: 500, maxHeight: "90vh", overflowY: "auto", padding: 22, border: "1px solid rgba(197,148,54,.48)", borderRadius: 20, background: "#04100d", boxShadow: "0 30px 90px rgba(0,0,0,.72)" },
-  modalHeader: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 18 },
-  modalEyebrow: { margin: "0 0 4px", color: "#59c941", fontSize: 11, fontWeight: 900, letterSpacing: 1.2, textTransform: "uppercase" },
-  modalTitle: { margin: 0, fontSize: 25, color: "#efd08a" },
-  closeButton: { width: 38, height: 38, border: "1px solid rgba(82,99,89,.58)", borderRadius: 10, background: "#0c2218", color: "#f8faf8", fontSize: 25, lineHeight: 1, cursor: "pointer" },
-  transactionTabs: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 },
-  transactionTab: { padding: "11px 14px", border: "1px solid rgba(78,91,83,.55)", borderRadius: 10, background: "#071813", color: "#9aa49d", fontWeight: 900, cursor: "pointer" },
-  transactionTabActive: { borderColor: "rgba(74,222,128,.60)", background: "rgba(34,197,94,.13)", color: "#86efac" },
-  transactionTabSaleActive: { borderColor: "rgba(251,113,133,.60)", background: "rgba(244,63,94,.12)", color: "#fda4af" },
-  currentPositionBox: { display: "flex", flexDirection: "column", gap: 10, padding: 14, border: "1px solid rgba(77,91,82,.5)", borderRadius: 12, background: "#061712" },
-  saleInformationBox: { marginTop: 17, padding: "12px 14px", border: "1px solid rgba(251,113,133,.32)", borderRadius: 12, background: "rgba(190,24,93,.07)", color: "#fecdd3", fontSize: 13, fontWeight: 700, lineHeight: 1.5 },
-  modalFields: { display: "grid", gap: 14, marginTop: 17 },
-  previewBox: { display: "flex", flexDirection: "column", gap: 5, marginTop: 17, padding: 14, border: "1px solid rgba(74,222,128,.4)", borderRadius: 12, background: "rgba(34,197,94,.08)" },
-  previewLabel: { color: "#86efac", fontSize: 12, fontWeight: 700 }, previewValue: { color: "#4ade80", fontSize: 22 }, previewHint: { color: "#9aa49d", fontSize: 12, lineHeight: 1.45 },
-  purchaseMessage: { marginTop: 16, padding: "12px 14px", border: "1px solid rgba(251,113,133,.45)", borderRadius: 11, background: "rgba(190,24,93,.10)", color: "#fecdd3", fontSize: 13, fontWeight: 700, lineHeight: 1.45 },
-  modalActions: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 20 },
-  cancelButton: { padding: "14px 16px", border: "1px solid rgba(80,97,87,.58)", borderRadius: 11, background: "#0c2218", color: "#dce4de", fontWeight: 800, cursor: "pointer" },
-  confirmButton: { padding: "14px 16px", border: "none", borderRadius: 11, background: "linear-gradient(180deg,#51d53c,#1d9d23)", color: "#031006", fontWeight: 900, cursor: "pointer" },
-  confirmSaleButton: { background: "linear-gradient(180deg,#fb7185,#be123c)", color: "#fff1f2" },
-  historyList: { display: "flex", flexDirection: "column", gap: 12 },
-  historyItem: { padding: 15, border: "1px solid rgba(77,91,82,.52)", borderRadius: 13, background: "#061712" },
-  historyTopRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 },
-  historyType: { padding: "6px 9px", borderRadius: 999, fontSize: 12, fontWeight: 900 },
-  historyDate: { color: "#89938c", fontSize: 12, textAlign: "right" },
-  historyDetails: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8, color: "#aeb6b0", fontSize: 13, lineHeight: 1.45 },
-  historyEmpty: { padding: "28px 18px", border: "1px dashed rgba(77,91,82,.62)", borderRadius: 13, color: "#9aa49d", textAlign: "center", lineHeight: 1.6 },
-  undoButton: { width: "100%", marginTop: 13, padding: "10px 12px", border: "1px solid rgba(251,191,36,.42)", borderRadius: 9, background: "rgba(180,113,10,.10)", color: "#f5d58d", fontWeight: 800 },
+    display: "grid",
+    gridTemplateColumns:
+      "repeat(2, minmax(0, 1fr))",
+    gap: 12,
+  },
+
+  summaryCard: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    padding: "14px 16px",
+    minHeight: 105,
+    justifyContent: "center",
+    border:
+      "1px solid rgba(76,89,81,.54)",
+    borderRadius: 16,
+    background:
+      "rgba(3,15,11,.88)",
+    boxShadow:
+      "0 18px 45px rgba(0,0,0,.18)",
+  },
+
+  summaryLabel: {
+    color: "#8e9891",
+    fontSize: 13,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: 0.7,
+  },
+
+  summaryValue: {
+    color: "#f3d58e",
+    fontSize: 26,
+  },
+
+  summarySecondary: {
+    color: "#728078",
+    fontSize: 14,
+    fontWeight: 700,
+  },
+
+  euroSection: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 20,
+    marginTop: 22,
+    padding: 22,
+    border:
+      "1px solid rgba(76,89,81,.5)",
+    borderRadius: 18,
+    background:
+      "rgba(2,12,9,.8)",
+  },
+
+  euroLabel: {
+    color: "#929a95",
+    fontSize: 13,
+    fontWeight: 700,
+  },
+
+  euroValue: {
+    margin: "7px 0 0",
+    fontSize: 27,
+  },
+
+  exchangeRate: {
+    margin: "6px 0 0",
+    color: "#6f7c74",
+    fontSize: 12,
+  },
+
+  euroProfit: {
+    textAlign: "right",
+  },
+
+  euroProfitValue: {
+    display: "block",
+    marginTop: 7,
+    fontSize: 22,
+  },
+
+  modalOverlay: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 100,
+    display: "grid",
+    placeItems: "center",
+    padding: 16,
+    background:
+      "rgba(0,6,4,.86)",
+    backdropFilter: "blur(9px)",
+  },
+
+  modal: {
+    width: "100%",
+    maxWidth: 500,
+    maxHeight: "90vh",
+    overflowY: "auto",
+    padding: 22,
+    border:
+      "1px solid rgba(197,148,54,.48)",
+    borderRadius: 20,
+    background: "#04100d",
+    boxShadow:
+      "0 30px 90px rgba(0,0,0,.72)",
+  },
+
+  modalHeader: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 16,
+    marginBottom: 18,
+  },
+
+  modalEyebrow: {
+    margin: "0 0 4px",
+    color: "#59c941",
+    fontSize: 11,
+    fontWeight: 900,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+  },
+
+  modalTitle: {
+    margin: 0,
+    fontSize: 25,
+    color: "#efd08a",
+  },
+
+  closeButton: {
+    width: 38,
+    height: 38,
+    border:
+      "1px solid rgba(82,99,89,.58)",
+    borderRadius: 10,
+    background: "#0c2218",
+    color: "#f8faf8",
+    fontSize: 25,
+    lineHeight: 1,
+    cursor: "pointer",
+  },
+
+  transactionTabs: {
+    display: "grid",
+    gridTemplateColumns:
+      "1fr 1fr",
+    gap: 8,
+    marginBottom: 16,
+  },
+
+  transactionTab: {
+    padding: "11px 14px",
+    border:
+      "1px solid rgba(78,91,83,.55)",
+    borderRadius: 10,
+    background: "#071813",
+    color: "#9aa49d",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+
+  transactionTabActive: {
+    borderColor:
+      "rgba(74,222,128,.60)",
+    background:
+      "rgba(34,197,94,.13)",
+    color: "#86efac",
+  },
+
+  transactionTabSaleActive: {
+    borderColor:
+      "rgba(251,113,133,.60)",
+    background:
+      "rgba(244,63,94,.12)",
+    color: "#fda4af",
+  },
+
+  currentPositionBox: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+    padding: 14,
+    border:
+      "1px solid rgba(77,91,82,.5)",
+    borderRadius: 12,
+    background: "#061712",
+  },
+
+  saleInformationBox: {
+    marginTop: 17,
+    padding: "12px 14px",
+    border:
+      "1px solid rgba(251,113,133,.32)",
+    borderRadius: 12,
+    background:
+      "rgba(190,24,93,.07)",
+    color: "#fecdd3",
+    fontSize: 13,
+    fontWeight: 700,
+    lineHeight: 1.5,
+  },
+
+  modalFields: {
+    display: "grid",
+    gap: 14,
+    marginTop: 17,
+  },
+
+  previewBox: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 5,
+    marginTop: 17,
+    padding: 14,
+    border:
+      "1px solid rgba(74,222,128,.4)",
+    borderRadius: 12,
+    background:
+      "rgba(34,197,94,.08)",
+  },
+
+  previewLabel: {
+    color: "#86efac",
+    fontSize: 12,
+    fontWeight: 700,
+  },
+
+  previewValue: {
+    color: "#4ade80",
+    fontSize: 22,
+  },
+
+  previewHint: {
+    color: "#9aa49d",
+    fontSize: 12,
+    lineHeight: 1.45,
+  },
+
+  purchaseMessage: {
+    marginTop: 16,
+    padding: "12px 14px",
+    border:
+      "1px solid rgba(251,113,133,.45)",
+    borderRadius: 11,
+    background:
+      "rgba(190,24,93,.10)",
+    color: "#fecdd3",
+    fontSize: 13,
+    fontWeight: 700,
+    lineHeight: 1.45,
+  },
+
+  modalActions: {
+    display: "grid",
+    gridTemplateColumns:
+      "1fr 1fr",
+    gap: 10,
+    marginTop: 20,
+  },
+
+  cancelButton: {
+    padding: "14px 16px",
+    border:
+      "1px solid rgba(80,97,87,.58)",
+    borderRadius: 11,
+    background: "#0c2218",
+    color: "#dce4de",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+
+  confirmButton: {
+    padding: "14px 16px",
+    border: "none",
+    borderRadius: 11,
+    background:
+      "linear-gradient(180deg,#51d53c,#1d9d23)",
+    color: "#031006",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+
+  confirmSaleButton: {
+    background:
+      "linear-gradient(180deg,#fb7185,#be123c)",
+    color: "#fff1f2",
+  },
+
+  historyList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+  },
+
+  historyItem: {
+    padding: 15,
+    border:
+      "1px solid rgba(77,91,82,.52)",
+    borderRadius: 13,
+    background: "#061712",
+  },
+
+  historyTopRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 12,
+  },
+
+  historyType: {
+    padding: "6px 9px",
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 900,
+  },
+
+  historyDate: {
+    color: "#89938c",
+    fontSize: 12,
+    textAlign: "right",
+  },
+
+  historyDetails: {
+    display: "grid",
+    gridTemplateColumns:
+      "repeat(2, minmax(0, 1fr))",
+    gap: 8,
+    color: "#aeb6b0",
+    fontSize: 13,
+    lineHeight: 1.45,
+  },
+
+  historyEmpty: {
+    padding: "28px 18px",
+    border:
+      "1px dashed rgba(77,91,82,.62)",
+    borderRadius: 13,
+    color: "#9aa49d",
+    textAlign: "center",
+    lineHeight: 1.6,
+  },
+
+  undoButton: {
+    width: "100%",
+    marginTop: 13,
+    padding: "10px 12px",
+    border:
+      "1px solid rgba(251,191,36,.42)",
+    borderRadius: 9,
+    background:
+      "rgba(180,113,10,.10)",
+    color: "#f5d58d",
+    fontWeight: 800,
+  },
 };
