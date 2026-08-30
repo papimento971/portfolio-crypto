@@ -2363,6 +2363,7 @@ export default function App() {
                 }}
               >
                 <div
+                  className="ld-summary-chart-grid"
                   style={{
                     display: "grid",
                     gridTemplateColumns: `repeat(${Math.min(
@@ -2623,6 +2624,7 @@ export default function App() {
                 }}
               >
                 <div
+                  className="ld-summary-chart-grid"
                   style={{
                     display: "grid",
                     gridTemplateColumns: `repeat(${Math.min(
@@ -3940,7 +3942,9 @@ const responsiveCss = `
     .ld-form-grid { grid-template-columns: 1fr !important; }
     .ld-card-grid { grid-template-columns: 1fr !important; }
     .ld-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
-
+    .ld-summary-chart-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+}
     .ld-card-grid {
       width: 100% !important;
       min-width: 0 !important;
