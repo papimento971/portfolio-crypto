@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./supabase";
 import ldLogo from "./assets/ld-logo.png";
 
@@ -40,25 +40,611 @@ export default function App() {
   const [realizedGainUSD, setRealizedGainUSD] = useState(0);
   const [realizedGainDetails, setRealizedGainDetails] = useState([]);
   const [showRealizedDetails, setShowRealizedDetails] = useState(false);
-  const [showProfitAmounts, setShowProfitAmounts] = useState(true);
-  const [showRealizedAmounts, setShowRealizedAmounts] = useState(true);
+  const [showProfitAmounts, setShowProfitAmounts] = useState(false);
+  const [showRealizedAmounts, setShowRealizedAmounts] = useState(false);
   
-  const [showInvestedAmounts, setShowInvestedAmounts] = useState(true);
-  const [showCurrentAmounts, setShowCurrentAmounts] = useState(true);
+  const [showInvestedAmounts, setShowInvestedAmounts] = useState(false);
+  const [showCurrentAmounts, setShowCurrentAmounts] = useState(false);
  
   const [message, setMessage] = useState("");
 
-  const [showAmounts, setShowAmounts] = useState(() => {
-    const savedValue = localStorage.getItem("portfolio-show-amounts");
-    return savedValue !== "false";
+  const [strategyModes, setStrategyModes] = useState(() => {
+    try {
+      const savedValue = localStorage.getItem(
+        "portfolio-strategy-modes"
+      );
+
+      return savedValue
+        ? JSON.parse(savedValue)
+        : {};
+    } catch (error) {
+      console.error(
+        "Erreur chargement modes stratégie :",
+        error
+      );
+
+      return {};
+    }
   });
+
+  const [strategyEditorAsset, setStrategyEditorAsset] =
+    useState(null);
+    const [strategyLevels, setStrategyLevels] = useState(() => {
+    try {
+      const savedValue = localStorage.getItem(
+        "portfolio-strategy-levels"
+      );
+
+      return savedValue
+        ? JSON.parse(savedValue)
+        : {};
+    } catch (error) {
+      console.error(
+        "Erreur chargement niveaux stratégie :",
+        error
+      );
+
+      return {};
+    }
+  });
+
+  const [strategyLevelsDraft, setStrategyLevelsDraft] = useState({
+    best: "",
+    good: "",
+    average: "",
+  });
+
+  const [strategyLevelsOriginal, setStrategyLevelsOriginal] = useState(null);
+
+  const [traderLevels, setTraderLevels] = useState(() => {
+    try {
+      const savedValue = localStorage.getItem(
+        "portfolio-trader-levels"
+      );
+
+      return savedValue
+        ? JSON.parse(savedValue)
+        : {};
+    } catch (error) {
+      console.error(
+        "Erreur chargement niveaux Trader :",
+        error
+      );
+
+      return {};
+    }
+  });
+
+  const [traderLevelsDraft, setTraderLevelsDraft] = useState([
+    { price: "", percent: "" },
+    { price: "", percent: "" },
+    { price: "", percent: "" },
+    { price: "", percent: "" },
+  ]);
+
+  const strategyHoldAlertState = useRef({});
+  const strategyTraderAlertState = useRef({});
+
+  useEffect(() => {
+    if (!strategyEditorAsset) {
+      return;
+    }
+
+    const strategyKey = String(strategyEditorAsset.dbId);
+    const savedLevels = strategyLevels[strategyKey] || {};
+
+    setStrategyLevelsDraft({
+      best: savedLevels.best ?? "",
+      good: savedLevels.good ?? "",
+      average: savedLevels.average ?? "",
+    });
+  }, [strategyEditorAsset, strategyLevels]);
 
   useEffect(() => {
     localStorage.setItem(
-      "portfolio-show-amounts",
-      String(showAmounts)
+      "portfolio-strategy-levels",
+      JSON.stringify(strategyLevels)
     );
-  }, [showAmounts]);
+  }, [strategyLevels]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      "portfolio-trader-levels",
+      JSON.stringify(traderLevels)
+    );
+  }, [traderLevels]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      "portfolio-strategy-modes",
+      JSON.stringify(strategyModes)
+    );
+  }, [strategyModes]);
+
+  useEffect(() => {
+    const activeAlertKeys = new Set();
+
+    assets.forEach((asset) => {
+      const strategyKey = String(asset.dbId);
+
+      if (strategyModes[strategyKey] !== "hold") {
+        return;
+      }
+
+      const currentPrice = Number(asset.currentPrice);
+
+      if (
+        !Number.isFinite(currentPrice) ||
+        currentPrice <= 0
+      ) {
+        return;
+      }
+
+      const savedLevels =
+        strategyLevels[strategyKey] || {};
+
+      const holdLevels = [
+        {
+          id: "best",
+          label: "Meilleur niveau",
+          value: savedLevels.best,
+        },
+        {
+          id: "good",
+          label: "Bon niveau",
+          value: savedLevels.good,
+        },
+        {
+          id: "average",
+          label: "Niveau moyen",
+          value: savedLevels.average,
+        },
+      ];
+
+      holdLevels.forEach((level) => {
+        const targetPrice = Number(
+          String(level.value ?? "")
+            .trim()
+            .replace(",", ".")
+        );
+
+        if (
+          !Number.isFinite(targetPrice) ||
+          targetPrice <= 0
+        ) {
+          return;
+        }
+
+        const alertKey =
+          `${strategyKey}:${level.id}:${targetPrice}`;
+
+        activeAlertKeys.add(alertKey);
+
+        const isReached =
+          currentPrice <= targetPrice;
+
+        if (
+          isReached &&
+          !strategyHoldAlertState.current[alertKey]
+        ) {
+          strategyHoldAlertState.current[alertKey] = true;
+
+          window.alert(
+            `Alerte Conserver — ${asset.name || asset.symbol || asset.id}\n\n` +
+              `${level.label} atteint.\n` +
+              `Niveau : $${targetPrice}\n` +
+              `Prix actuel : $${currentPrice}`
+          );
+        }
+
+        if (!isReached) {
+          strategyHoldAlertState.current[alertKey] = false;
+        }
+      });
+    });
+
+    Object.keys(
+      strategyHoldAlertState.current
+    ).forEach((alertKey) => {
+      if (!activeAlertKeys.has(alertKey)) {
+        delete strategyHoldAlertState.current[alertKey];
+      }
+    });
+  }, [assets, strategyModes, strategyLevels]);
+
+  useEffect(() => {
+    const activeAlertKeys = new Set();
+
+    assets.forEach((asset) => {
+      const strategyKey = String(asset.dbId);
+
+      if (strategyModes[strategyKey] !== "trade") {
+        return;
+      }
+
+      const currentPrice = Number(asset.currentPrice);
+
+      if (
+        !Number.isFinite(currentPrice) ||
+        currentPrice <= 0
+      ) {
+        return;
+      }
+
+      const savedLevels =
+        traderLevels[strategyKey] || [];
+
+      savedLevels.forEach((level, index) => {
+        const targetPrice = Number(
+          String(level?.price ?? "")
+            .trim()
+            .replace(",", ".")
+        );
+
+        const percent = Number(
+          String(level?.percent ?? "")
+            .trim()
+            .replace(",", ".")
+        );
+
+        if (
+          !Number.isFinite(targetPrice) ||
+          targetPrice <= 0 ||
+          !Number.isFinite(percent) ||
+          percent <= 0 ||
+          percent > 100
+        ) {
+          return;
+        }
+
+        const alertKey =
+          `${strategyKey}:trade:${index}:${targetPrice}:${percent}`;
+
+        activeAlertKeys.add(alertKey);
+
+        const isReached =
+          currentPrice >= targetPrice;
+
+        if (
+          isReached &&
+          !strategyTraderAlertState.current[alertKey]
+        ) {
+          strategyTraderAlertState.current[alertKey] = true;
+
+          window.alert(
+            `Alerte Trader — ${asset.name || asset.symbol || asset.id}\n\n` +
+              `Niveau de sortie ${index + 1} atteint.\n` +
+              `Prix de sortie : $${targetPrice}\n` +
+              `Pourcentage prévu : ${percent}%\n` +
+              `Prix actuel : $${currentPrice}`
+          );
+        }
+
+        if (!isReached) {
+          strategyTraderAlertState.current[alertKey] = false;
+        }
+      });
+    });
+
+    Object.keys(
+      strategyTraderAlertState.current
+    ).forEach((alertKey) => {
+      if (!activeAlertKeys.has(alertKey)) {
+        delete strategyTraderAlertState.current[alertKey];
+      }
+    });
+  }, [assets, strategyModes, traderLevels]);
+
+  function openStrategyLevelsEditor(asset) {
+    const strategyKey = String(asset.dbId);
+
+    let storedLevels = {};
+    let existed = false;
+
+    try {
+      const raw = localStorage.getItem(
+        "portfolio-strategy-levels"
+      );
+      const allLevels = raw ? JSON.parse(raw) : {};
+
+      existed = Object.prototype.hasOwnProperty.call(
+        allLevels,
+        strategyKey
+      );
+      storedLevels = allLevels[strategyKey] || {};
+    } catch (error) {
+      console.error(
+        "Erreur lecture niveaux avant modification :",
+        error
+      );
+    }
+
+    setStrategyLevelsOriginal({
+      strategyKey,
+      existed,
+      levels: {
+        best: storedLevels.best ?? "",
+        good: storedLevels.good ?? "",
+        average: storedLevels.average ?? "",
+      },
+    });
+
+    setStrategyLevelsDraft({
+      best: storedLevels.best ?? "",
+      good: storedLevels.good ?? "",
+      average: storedLevels.average ?? "",
+    });
+
+    setStrategyEditorAsset(asset);
+  }
+
+  function cancelStrategyLevels() {
+    if (strategyEditorAsset) {
+      const strategyKey = String(strategyEditorAsset.dbId);
+
+      setStrategyModes((previousModes) => ({
+        ...previousModes,
+        [strategyKey]: null,
+      }));
+
+      setStrategyLevels((previousLevels) => {
+        const nextLevels = { ...previousLevels };
+        delete nextLevels[strategyKey];
+
+        localStorage.setItem(
+          "portfolio-strategy-levels",
+          JSON.stringify(nextLevels)
+        );
+
+        return nextLevels;
+      });
+
+      Object.keys(strategyHoldAlertState.current).forEach(
+        (alertKey) => {
+          if (alertKey.startsWith(`${strategyKey}:`)) {
+            delete strategyHoldAlertState.current[alertKey];
+          }
+        }
+      );
+    }
+
+    setStrategyLevelsDraft({
+      best: "",
+      good: "",
+      average: "",
+    });
+
+    setStrategyLevelsOriginal(null);
+    setStrategyEditorAsset(null);
+  }
+
+  function saveStrategyLevels() {
+    if (!strategyEditorAsset) {
+      return;
+    }
+
+    const strategyKey = String(strategyEditorAsset.dbId);
+
+    const normalizeLevel = (value) =>
+      String(value ?? "")
+        .trim()
+        .replace(",", ".");
+
+    const savedLevels = {
+      best: normalizeLevel(strategyLevelsDraft.best),
+      good: normalizeLevel(strategyLevelsDraft.good),
+      average: normalizeLevel(strategyLevelsDraft.average),
+    };
+
+    const nextLevels = {
+      ...strategyLevels,
+      [strategyKey]: savedLevels,
+    };
+
+    localStorage.setItem(
+      "portfolio-strategy-levels",
+      JSON.stringify(nextLevels)
+    );
+
+    setStrategyLevels(nextLevels);
+    setStrategyLevelsOriginal(null);
+    setStrategyEditorAsset(null);
+  }
+
+  function getSavedStrategyLevels(asset) {
+    try {
+      const savedValue = localStorage.getItem(
+        "portfolio-strategy-levels"
+      );
+
+      const allLevels = savedValue
+        ? JSON.parse(savedValue)
+        : {};
+
+      return allLevels[String(asset.dbId)] || {};
+    } catch (error) {
+      console.error(
+        "Erreur lecture niveaux stratégie :",
+        error
+      );
+
+      return {};
+    }
+  }
+
+  function openTraderLevelsEditor(asset) {
+    const strategyKey = String(asset.dbId);
+
+    let storedLevels = [];
+
+    try {
+      const raw = localStorage.getItem(
+        "portfolio-trader-levels"
+      );
+
+      const allLevels = raw ? JSON.parse(raw) : {};
+      storedLevels = Array.isArray(allLevels[strategyKey])
+        ? allLevels[strategyKey]
+        : [];
+    } catch (error) {
+      console.error(
+        "Erreur lecture niveaux Trader :",
+        error
+      );
+    }
+
+    const normalizedDraft = [0, 1, 2, 3].map(
+      (index) => ({
+        price: storedLevels[index]?.price ?? "",
+        percent: storedLevels[index]?.percent ?? "",
+      })
+    );
+
+    setTraderLevelsDraft(normalizedDraft);
+    setStrategyEditorAsset(asset);
+  }
+
+  function cancelTraderLevels() {
+    if (strategyEditorAsset) {
+      const strategyKey = String(strategyEditorAsset.dbId);
+
+      setStrategyModes((previousModes) => ({
+        ...previousModes,
+        [strategyKey]: null,
+      }));
+
+      setTraderLevels((previousLevels) => {
+        const nextLevels = { ...previousLevels };
+        delete nextLevels[strategyKey];
+
+        localStorage.setItem(
+          "portfolio-trader-levels",
+          JSON.stringify(nextLevels)
+        );
+
+        return nextLevels;
+      });
+
+      Object.keys(
+        strategyTraderAlertState.current
+      ).forEach((alertKey) => {
+        if (
+          alertKey.startsWith(
+            `${strategyKey}:trade:`
+          )
+        ) {
+          delete strategyTraderAlertState.current[
+            alertKey
+          ];
+        }
+      });
+    }
+
+    setTraderLevelsDraft([
+      { price: "", percent: "" },
+      { price: "", percent: "" },
+      { price: "", percent: "" },
+      { price: "", percent: "" },
+    ]);
+
+    setStrategyEditorAsset(null);
+  }
+
+  function saveTraderLevels() {
+    if (!strategyEditorAsset) {
+      return;
+    }
+
+    const strategyKey = String(strategyEditorAsset.dbId);
+
+    const normalizeValue = (value) =>
+      String(value ?? "")
+        .trim()
+        .replace(",", ".");
+
+    const savedLevels = traderLevelsDraft.map(
+      (level) => ({
+        price: normalizeValue(level.price),
+        percent: normalizeValue(level.percent),
+      })
+    );
+
+    const nextLevels = {
+      ...traderLevels,
+      [strategyKey]: savedLevels,
+    };
+
+    localStorage.setItem(
+      "portfolio-trader-levels",
+      JSON.stringify(nextLevels)
+    );
+
+    setTraderLevels(nextLevels);
+    setStrategyEditorAsset(null);
+  }
+
+  function changeStrategyMode(asset, nextMode) {
+    const strategyKey = String(asset.dbId);
+
+    const currentMode =
+      strategyModes[strategyKey] || null;
+
+    if (currentMode === nextMode) {
+      const confirmed = window.confirm(
+        `Désactiver le mode ${
+          nextMode === "hold"
+            ? "Conserver"
+            : "Trader"
+        } ?`
+      );
+
+      if (!confirmed) {
+        return;
+      }
+
+      setStrategyModes((previousModes) => ({
+        ...previousModes,
+        [strategyKey]: null,
+      }));
+
+      return;
+    }
+
+    const confirmed = window.confirm(
+      currentMode
+        ? `Passer du mode ${
+            currentMode === "hold"
+              ? "Conserver"
+              : "Trader"
+          } au mode ${
+            nextMode === "hold"
+              ? "Conserver"
+              : "Trader"
+          } ?`
+        : `Activer le mode ${
+            nextMode === "hold"
+              ? "Conserver"
+              : "Trader"
+          } ?`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setStrategyModes((previousModes) => ({
+      ...previousModes,
+      [strategyKey]: nextMode,
+    }));
+
+    if (nextMode === "hold") {
+      openStrategyLevelsEditor(asset);
+    }
+
+    if (nextMode === "trade") {
+      openTraderLevelsEditor(asset);
+    }
+  }
 
   useEffect(() => {
     loadAssets();
@@ -2143,7 +2729,319 @@ export default function App() {
                         %
                       </strong>
                     </div>
+                                        <div
+                      style={styles.strategyBox}
+                    >
+                      <div
+                        style={styles.strategyTopRow}
+                      >
+                        <div
+                          style={styles.strategyLabel}
+                        >
+                          <span>
+                            Stratégie de position
+                          </span>
 
+                          <span
+                            style={styles.strategyInfo}
+                            title="Mode de gestion de cette position"
+                          >
+                            i
+                          </span>
+                        </div>
+
+                        <div
+                          style={styles.strategyControls}
+                        >
+                          <button
+                            type="button"
+                            style={{
+                              ...styles.strategyChoice,
+                              ...(strategyModes[
+                                String(asset.dbId)
+                              ] === "hold"
+                                ? styles.strategyChoiceActive
+                                : {}),
+                            }}
+                            onClick={() =>
+                              changeStrategyMode(
+                                asset,
+                                "hold"
+                              )
+                            }
+                          >
+                            <span
+                              style={{
+                                ...styles.strategyCheckbox,
+                                ...(strategyModes[
+                                  String(asset.dbId)
+                                ] === "hold"
+                                  ? styles.strategyCheckboxActive
+                                  : {}),
+                              }}
+                            >
+                              {strategyModes[
+                                String(asset.dbId)
+                              ] === "hold"
+                                ? "✓"
+                                : ""}
+                            </span>
+
+                            <span
+                              style={styles.strategyChoiceText}
+                            >
+                              <strong>
+                                Conserver
+                              </strong>
+
+
+                            </span>
+                          </button>
+
+                          <button
+                            type="button"
+                            style={{
+                              ...styles.strategyChoice,
+                              ...(strategyModes[
+                                String(asset.dbId)
+                              ] === "trade"
+                                ? styles.strategyChoiceActive
+                                : {}),
+                            }}
+                            onClick={() =>
+                              changeStrategyMode(
+                                asset,
+                                "trade"
+                              )
+                            }
+                          >
+                            <span
+                              style={{
+                                ...styles.strategyCheckbox,
+                                ...(strategyModes[
+                                  String(asset.dbId)
+                                ] === "trade"
+                                  ? styles.strategyCheckboxActive
+                                  : {}),
+                              }}
+                            >
+                              {strategyModes[
+                                String(asset.dbId)
+                              ] === "trade"
+                                ? "✓"
+                                : ""}
+                            </span>
+
+                            <span
+                              style={styles.strategyChoiceText}
+                            >
+                              <strong>
+                                Trader
+                              </strong>
+
+                              
+                            </span>
+                          </button>
+
+                       
+                        </div>
+                      </div>
+
+                      {strategyModes[
+                        String(asset.dbId)
+                      ] === "hold" && (
+                        <div
+                          style={styles.strategyLevelsBox}
+                        >
+                                                   <div
+                            style={{
+                              ...styles.strategyLevelsTitle,
+                              justifyContent: "space-between",
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                              }}
+                            >
+                              <span>
+                                Niveaux de rechargement
+                              </span>
+
+                              <span
+                                style={styles.strategyInfo}
+                              >
+                                i
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openStrategyLevelsEditor(asset)
+                              }
+                              style={{
+                                padding: "4px 10px",
+                                border:
+                                  "1px solid rgba(94,219,54,.55)",
+                                borderRadius: 6,
+                                background:
+                                  "rgba(49,145,54,.12)",
+                                color: "#8fea79",
+                                fontSize: 10,
+                                fontWeight: 850,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Modifier
+                            </button>
+                          </div>
+
+                          <div
+                            style={styles.strategyHoldLevels}
+                          >
+                            <div
+                              style={styles.strategyHoldLevel}
+                            >
+                              <span
+                                style={{
+                                  ...styles.strategyDot,
+                                  background: "#22df62",
+                                }}
+                              />
+                              <strong>
+                                {strategyLevels[String(asset.dbId)]?.best
+                                  ? `$${strategyLevels[String(asset.dbId)].best}`
+                                  : "—"}
+                              </strong>
+                            </div>
+
+                            <div
+                              style={styles.strategyHoldLevel}
+                            >
+                              <span
+                                style={{
+                                  ...styles.strategyDot,
+                                  background: "#ffd52a",
+                                }}
+                              />
+                              <strong>
+                                {strategyLevels[String(asset.dbId)]?.good
+                                  ? `$${strategyLevels[String(asset.dbId)].good}`
+                                  : "—"}
+                              </strong>
+                            </div>
+
+                            <div
+                              style={styles.strategyHoldLevel}
+                            >
+                              <span
+                                style={{
+                                  ...styles.strategyDot,
+                                  background: "#ff7900",
+                                }}
+                              />
+                              <strong>
+                                {strategyLevels[String(asset.dbId)]?.average
+                                  ? `$${strategyLevels[String(asset.dbId)].average}`
+                                  : "—"}
+                              </strong>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {strategyModes[
+                        String(asset.dbId)
+                      ] === "trade" && (
+                        <div
+                          style={styles.strategyLevelsBox}
+                        >
+                          <div
+                            style={{
+                              ...styles.strategyLevelsTitle,
+                              justifyContent: "space-between",
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                              }}
+                            >
+                              <span>
+                                Niveaux de sortie
+                              </span>
+
+                              <span
+                                style={styles.strategyInfo}
+                              >
+                                i
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openTraderLevelsEditor(asset)
+                              }
+                              style={{
+                                padding: "4px 10px",
+                                border:
+                                  "1px solid rgba(94,219,54,.55)",
+                                borderRadius: 6,
+                                background:
+                                  "rgba(49,145,54,.12)",
+                                color: "#8fea79",
+                                fontSize: 10,
+                                fontWeight: 850,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Modifier
+                            </button>
+                          </div>
+
+                          <div
+                            style={styles.strategyTradeLevels}
+                          >
+                            {[0, 1, 2, 3].map((index) => {
+                              const level =
+                                traderLevels[
+                                  String(asset.dbId)
+                                ]?.[index];
+
+                              const hasPrice =
+                                String(
+                                  level?.price ?? ""
+                                ).trim() !== "";
+
+                              const hasPercent =
+                                String(
+                                  level?.percent ?? ""
+                                ).trim() !== "";
+
+                              return (
+                                <span
+                                  key={`trade-level-${index}`}
+                                >
+                                  {hasPrice
+                                    ? `$${level.price}`
+                                    : "—"}{" "}
+                                  →{" "}
+                                  {hasPercent
+                                    ? `${level.percent} %`
+                                    : "— %"}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                     <div
                       style={
                         styles.cardActions
@@ -2225,9 +3123,11 @@ export default function App() {
           }
         >
           <div
-            style={
-              styles.bottomSummaryHeader
-            }
+            style={{
+              ...styles.bottomSummaryHeader,
+              justifyContent: "center",
+              textAlign: "center",
+            }}
           >
             <div>
               <h2
@@ -2245,37 +3145,6 @@ export default function App() {
                 conversion en euros
               </p>
             </div>
-
-            <button
-              type="button"
-              style={
-                styles.visibilityButton
-              }
-              onClick={() =>
-                setShowAmounts(
-                  (current) => !current
-                )
-              }
-              aria-label={
-                showAmounts
-                  ? "Masquer les montants"
-                  : "Afficher les montants"
-              }
-            >
-              <span
-                style={
-                  styles.visibilityIcon
-                }
-              >
-                {showAmounts
-                  ? "◉"
-                  : "◌"}
-              </span>
-
-              {showAmounts
-                ? "Masquer"
-                : "Afficher"}
-            </button>
           </div>
 
           <div
@@ -3368,7 +4237,499 @@ export default function App() {
           </div>
         </div>
       )}
+      {strategyEditorAsset &&
+        strategyModes[
+          String(strategyEditorAsset.dbId)
+        ] === "hold" && (
+          <div
+            style={styles.modalOverlay}
+          >
+            <div style={styles.modal}>
+              <div
+                style={styles.modalHeader}
+              >
+                <div
+                  style={styles.tokenIdentity}
+                >
+                  {strategyEditorAsset.image ? (
+                    <img
+                      src={
+                        strategyEditorAsset.image
+                      }
+                      alt=""
+                      style={styles.tokenLogo}
+                    />
+                  ) : (
+                    <div
+                      style={
+                        styles.logoPlaceholder
+                      }
+                    >
+                      {strategyEditorAsset.name
+                        ?.slice(0, 1)
+                        .toUpperCase()}
+                    </div>
+                  )}
 
+                  <div>
+                    <h3
+                      style={styles.cardTitle}
+                    >
+                      {strategyEditorAsset.name}
+                    </h3>
+
+                    <span
+                      style={styles.cardSymbol}
+                    >
+                      {strategyEditorAsset.symbol ||
+                        strategyEditorAsset.id}
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  style={styles.closeButton}
+                  onClick={() =>
+                    setStrategyEditorAsset(
+                      null
+                    )
+                  }
+                >
+                  ×
+                </button>
+              </div>
+
+                           <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent:
+                    "space-between",
+                  gap: 16,
+                  marginBottom: 20,
+                }}
+              >
+                <h2 style={styles.modalTitle}>
+                  Mode Conserver
+                </h2>
+
+                <strong
+                  style={{
+                    ...styles.currentPrice,
+                    fontSize: 18,
+                  }}
+                >
+                  {formatUSD(
+                    strategyEditorAsset.currentPrice,
+                    true
+                  )}
+                </strong>
+              </div>
+
+              <div
+                style={{
+                  padding: 16,
+                  border:
+                    "1px solid rgba(46,126,72,.55)",
+                  borderRadius: 12,
+                  background:
+                    "rgba(2,18,11,.72)",
+                }}
+              >
+                <h3
+                  style={{
+                    margin: "0 0 16px",
+                    color: "#e6ebe7",
+                    fontSize: 15,
+                  }}
+                >
+                  Niveaux de rechargement
+                </h3>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gap: 12,
+                  }}
+                >
+                  <label>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        marginBottom: 6,
+                        color: "#68e879",
+                        fontSize: 12,
+                        fontWeight: 800,
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: "50%",
+                          background: "#22df62",
+                        }}
+                      />
+                      Meilleur niveau
+                    </div>
+
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={strategyLevelsDraft.best}
+                      onChange={(event) =>
+                        setStrategyLevelsDraft(
+                          (previousDraft) => ({
+                            ...previousDraft,
+                            best: event.target.value,
+                          })
+                        )
+                      }
+                      placeholder="Prix de rechargement ($US)"
+                      style={styles.input}
+                    />
+                  </label>
+
+                  <label>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        marginBottom: 6,
+                        color: "#f0d95a",
+                        fontSize: 12,
+                        fontWeight: 800,
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: "50%",
+                          background: "#ffd52a",
+                        }}
+                      />
+                      Bon niveau
+                    </div>
+
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={strategyLevelsDraft.good}
+                      onChange={(event) =>
+                        setStrategyLevelsDraft(
+                          (previousDraft) => ({
+                            ...previousDraft,
+                            good: event.target.value,
+                          })
+                        )
+                      }
+                      placeholder="Prix de rechargement ($US)"
+                      style={styles.input}
+                    />
+                  </label>
+
+                  <label>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        marginBottom: 6,
+                        color: "#f2a04a",
+                        fontSize: 12,
+                        fontWeight: 800,
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: "50%",
+                          background: "#ff7900",
+                        }}
+                      />
+                      Niveau moyen
+                    </div>
+
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={strategyLevelsDraft.average}
+                      onChange={(event) =>
+                        setStrategyLevelsDraft(
+                          (previousDraft) => ({
+                            ...previousDraft,
+                            average: event.target.value,
+                          })
+                        )
+                      }
+                      placeholder="Prix de rechargement ($US)"
+                      style={styles.input}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: 10,
+                  marginTop: 18,
+                }}
+              >
+                <button
+                  type="button"
+                  style={styles.secondaryButton}
+                  onClick={cancelStrategyLevels}
+                >
+                  Annuler
+                </button>
+
+                <button
+                  type="button"
+                  style={styles.primaryButton}
+                  onClick={saveStrategyLevels}
+                >
+                  Enregistrer
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      {strategyEditorAsset &&
+        strategyModes[
+          String(strategyEditorAsset.dbId)
+        ] === "trade" && (
+          <div
+            style={styles.modalOverlay}
+          >
+            <div style={styles.modal}>
+              <div
+                style={styles.modalHeader}
+              >
+                <div
+                  style={styles.tokenIdentity}
+                >
+                  {strategyEditorAsset.image ? (
+                    <img
+                      src={
+                        strategyEditorAsset.image
+                      }
+                      alt=""
+                      style={styles.tokenLogo}
+                    />
+                  ) : (
+                    <div
+                      style={
+                        styles.logoPlaceholder
+                      }
+                    >
+                      {strategyEditorAsset.name
+                        ?.slice(0, 1)
+                        .toUpperCase()}
+                    </div>
+                  )}
+
+                  <div>
+                    <h3
+                      style={styles.cardTitle}
+                    >
+                      {strategyEditorAsset.name}
+                    </h3>
+
+                    <span
+                      style={styles.cardSymbol}
+                    >
+                      {strategyEditorAsset.symbol ||
+                        strategyEditorAsset.id}
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  style={styles.closeButton}
+                  onClick={() =>
+                    setStrategyEditorAsset(
+                      null
+                    )
+                  }
+                >
+                  ×
+                </button>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent:
+                    "space-between",
+                  gap: 16,
+                  marginBottom: 20,
+                }}
+              >
+                <h2 style={styles.modalTitle}>
+                  Mode Trader
+                </h2>
+
+                <strong
+                  style={{
+                    ...styles.currentPrice,
+                    fontSize: 18,
+                  }}
+                >
+                  {formatUSD(
+                    strategyEditorAsset.currentPrice,
+                    true
+                  )}
+                </strong>
+              </div>
+
+              <div
+                style={{
+                  padding: 16,
+                  border:
+                    "1px solid rgba(46,126,72,.55)",
+                  borderRadius: 12,
+                  background:
+                    "rgba(2,18,11,.72)",
+                }}
+              >
+                <h3
+                  style={{
+                    margin: "0 0 10px",
+                    color: "#e6ebe7",
+                    fontSize: 15,
+                  }}
+                >
+                  Niveaux de sortie
+                </h3>
+
+                <div
+                  style={{
+                    marginBottom: 14,
+                    padding: "9px 11px",
+                    borderRadius: 9,
+                    border:
+                      "1px solid rgba(94,219,54,.28)",
+                    background:
+                      "rgba(49,145,54,.08)",
+                    color: "#9eb8a6",
+                    fontSize: 11,
+                    fontWeight: 700,
+                  }}
+                >
+                  Chaque niveau complété crée une alerte.
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gap: 12,
+                  }}
+                >
+                  {[0, 1, 2, 3].map((index) => (
+                    <div
+                      key={`trader-edit-${index}`}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns:
+                          "minmax(0, 1fr) minmax(0, 1fr)",
+                        gap: 10,
+                      }}
+                    >
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={
+                          traderLevelsDraft[index]
+                            ?.price ?? ""
+                        }
+                        onChange={(event) =>
+                          setTraderLevelsDraft(
+                            (previousDraft) =>
+                              previousDraft.map(
+                                (level, levelIndex) =>
+                                  levelIndex === index
+                                    ? {
+                                        ...level,
+                                        price:
+                                          event.target
+                                            .value,
+                                      }
+                                    : level
+                              )
+                          )
+                        }
+                        placeholder="Prix de sortie ($US)"
+                        style={styles.input}
+                      />
+
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={
+                          traderLevelsDraft[index]
+                            ?.percent ?? ""
+                        }
+                        onChange={(event) =>
+                          setTraderLevelsDraft(
+                            (previousDraft) =>
+                              previousDraft.map(
+                                (level, levelIndex) =>
+                                  levelIndex === index
+                                    ? {
+                                        ...level,
+                                        percent:
+                                          event.target
+                                            .value,
+                                      }
+                                    : level
+                              )
+                          )
+                        }
+                        placeholder="Pourcentage à vendre (%)"
+                        style={styles.input}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: 10,
+                  marginTop: 18,
+                }}
+              >
+                <button
+                  type="button"
+                  style={styles.secondaryButton}
+                  onClick={cancelTraderLevels}
+                >
+                  Annuler
+                </button>
+
+                <button
+                  type="button"
+                  style={styles.primaryButton}
+                  onClick={saveTraderLevels}
+                >
+                  Enregistrer
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       {editingAsset && (
         <div
           style={styles.modalOverlay}
@@ -4693,7 +6054,188 @@ const styles = {
   performance: {
     fontSize: 17,
   },
+    strategyBox: {
+    marginTop: 17,
+    paddingTop: 12,
+    borderTop:
+      "1px solid rgba(78,91,83,.5)",
+  },
 
+  strategyTopRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+
+  strategyLabel: {
+    display: "flex",
+    alignItems: "center",
+    gap: 5,
+    flexShrink: 0,
+    color: "#aeb7b0",
+    fontSize: 11,
+    fontWeight: 700,
+  },
+
+  strategyInfo: {
+    width: 16,
+    height: 16,
+    display: "inline-grid",
+    placeItems: "center",
+    flexShrink: 0,
+    borderRadius: "50%",
+    background: "#52758a",
+    color: "#dcecf5",
+    fontSize: 10,
+    fontWeight: 900,
+    lineHeight: 1,
+  },
+
+  strategyControls: {
+    display: "flex",
+    alignItems: "stretch",
+    justifyContent: "flex-end",
+    gap: 6,
+    minWidth: 0,
+    flex: 1,
+  },
+
+  strategyChoice: {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    minWidth: 0,
+    padding: "7px 9px",
+    border:
+      "1px solid rgba(76,89,81,.62)",
+    borderRadius: 8,
+    background:
+      "rgba(2,12,9,.76)",
+    color: "#d7ddd8",
+    cursor: "pointer",
+  },
+
+  strategyChoiceActive: {
+    border:
+      "1px solid rgba(42,220,82,.85)",
+    background:
+      "rgba(18,83,42,.22)",
+    boxShadow:
+      "0 0 10px rgba(42,220,82,.12)",
+  },
+
+  strategyCheckbox: {
+    width: 18,
+    height: 18,
+    display: "grid",
+    placeItems: "center",
+    flexShrink: 0,
+    border:
+      "1px solid rgba(108,123,114,.78)",
+    borderRadius: 3,
+    background:
+      "rgba(2,12,9,.88)",
+    color: "#031006",
+    fontSize: 12,
+    fontWeight: 950,
+    lineHeight: 1,
+  },
+
+  strategyCheckboxActive: {
+    border:
+      "1px solid rgba(43,235,91,.95)",
+    background: "#25df62",
+    color: "#022b10",
+    boxShadow:
+      "0 0 9px rgba(37,223,98,.28)",
+  },
+
+  strategyChoiceText: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-start",
+    minWidth: 0,
+    lineHeight: 1.05,
+  },
+
+  strategyEyeButton: {
+    width: 38,
+    minWidth: 38,
+    display: "grid",
+    placeItems: "center",
+    padding: 0,
+    border:
+      "1px solid rgba(89,112,99,.68)",
+    borderRadius: 8,
+    background:
+      "rgba(3,16,12,.92)",
+    color: "#e8efea",
+    fontSize: 17,
+    opacity: 1,
+    cursor: "default",
+  },
+
+  strategyLevelsBox: {
+    marginTop: 9,
+    padding: "8px 9px",
+    border:
+      "1px solid rgba(36,133,64,.52)",
+    borderLeft:
+      "4px solid #23df62",
+    borderRadius: 8,
+    background:
+      "rgba(3,24,15,.72)",
+  },
+
+  strategyLevelsTitle: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 8,
+    color: "#bfc7c1",
+    fontSize: 11,
+    fontWeight: 750,
+  },
+
+  strategyHoldLevels: {
+    display: "grid",
+    gridTemplateColumns:
+      "repeat(3, minmax(0, 1fr))",
+    gap: 7,
+  },
+
+  strategyHoldLevel: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    minWidth: 0,
+    padding: "8px 7px",
+    border:
+      "1px solid rgba(35,118,61,.45)",
+    borderRadius: 7,
+    background:
+      "rgba(2,15,10,.82)",
+    color: "#e2e8e3",
+    fontSize: 11,
+  },
+
+  strategyDot: {
+    width: 18,
+    height: 18,
+    flexShrink: 0,
+    borderRadius: "50%",
+    boxShadow:
+      "0 0 8px rgba(255,255,255,.08)",
+  },
+
+  strategyTradeLevels: {
+    display: "grid",
+    gridTemplateColumns:
+      "repeat(4, minmax(0, 1fr))",
+    gap: 6,
+  },
   cardActions: {
     display: "grid",
     gridTemplateColumns:
