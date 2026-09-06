@@ -709,9 +709,25 @@ export default function App() {
       return;
     }
 
-    const localModes = { ...strategyModes };
-    const localHoldLevels = { ...strategyLevels };
-    const localTraderLevels = { ...traderLevels };
+    // Lire directement le localStorage au moment de la migration.
+    // Cela évite d'utiliser un state React potentiellement déjà resynchronisé
+    // avant que les anciennes stratégies locales aient été envoyées à Supabase.
+    const readLocalStrategyMap = (storageKey) => {
+      try {
+        const raw = localStorage.getItem(storageKey);
+        const parsed = raw ? JSON.parse(raw) : {};
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+          ? parsed
+          : {};
+      } catch (error) {
+        console.error(`Erreur lecture ${storageKey} :`, error);
+        return {};
+      }
+    };
+
+    const localModes = readLocalStrategyMap("portfolio-strategy-modes");
+    const localHoldLevels = readLocalStrategyMap("portfolio-strategy-levels");
+    const localTraderLevels = readLocalStrategyMap("portfolio-trader-levels");
 
     const syncedModes = {};
     const syncedHoldLevels = {};
