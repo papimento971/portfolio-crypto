@@ -337,27 +337,11 @@ export default function App() {
 
   function openStrategyLevelsEditor(asset) {
     const strategyKey = String(asset.dbId);
-
-    let storedLevels = {};
-    let existed = false;
-
-    try {
-      const raw = localStorage.getItem(
-        "portfolio-strategy-levels"
-      );
-      const allLevels = raw ? JSON.parse(raw) : {};
-
-      existed = Object.prototype.hasOwnProperty.call(
-        allLevels,
-        strategyKey
-      );
-      storedLevels = allLevels[strategyKey] || {};
-    } catch (error) {
-      console.error(
-        "Erreur lecture niveaux avant modification :",
-        error
-      );
-    }
+    const storedLevels = strategyLevels[strategyKey] || {};
+    const existed = Object.prototype.hasOwnProperty.call(
+      strategyLevels,
+      strategyKey
+    );
 
     setStrategyLevelsOriginal({
       strategyKey,
@@ -378,9 +362,28 @@ export default function App() {
     setStrategyEditorAsset(asset);
   }
 
-  function cancelStrategyLevels() {
+  async function cancelStrategyLevels() {
     if (strategyEditorAsset) {
       const strategyKey = String(strategyEditorAsset.dbId);
+
+      const { error } = await supabase
+        .from("portfolios")
+        .update({
+          strategy_mode: null,
+          hold_levels: null,
+        })
+        .eq("id", strategyEditorAsset.dbId);
+
+      if (error) {
+        console.error(
+          "Erreur suppression stratégie Conserver :",
+          error
+        );
+        setMessage(
+          "Impossible de supprimer la stratégie Conserver."
+        );
+        return;
+      }
 
       setStrategyModes((previousModes) => ({
         ...previousModes,
@@ -390,12 +393,6 @@ export default function App() {
       setStrategyLevels((previousLevels) => {
         const nextLevels = { ...previousLevels };
         delete nextLevels[strategyKey];
-
-        localStorage.setItem(
-          "portfolio-strategy-levels",
-          JSON.stringify(nextLevels)
-        );
-
         return nextLevels;
       });
 
@@ -418,7 +415,7 @@ export default function App() {
     setStrategyEditorAsset(null);
   }
 
-  function saveStrategyLevels() {
+  async function saveStrategyLevels() {
     if (!strategyEditorAsset) {
       return;
     }
@@ -436,62 +433,48 @@ export default function App() {
       average: normalizeLevel(strategyLevelsDraft.average),
     };
 
-    const nextLevels = {
-      ...strategyLevels,
+    const { error } = await supabase
+      .from("portfolios")
+      .update({
+        strategy_mode: "hold",
+        hold_levels: savedLevels,
+      })
+      .eq("id", strategyEditorAsset.dbId);
+
+    if (error) {
+      console.error(
+        "Erreur enregistrement stratégie Conserver :",
+        error
+      );
+      setMessage(
+        "Impossible d’enregistrer la stratégie Conserver."
+      );
+      return;
+    }
+
+    setStrategyModes((previousModes) => ({
+      ...previousModes,
+      [strategyKey]: "hold",
+    }));
+
+    setStrategyLevels((previousLevels) => ({
+      ...previousLevels,
       [strategyKey]: savedLevels,
-    };
+    }));
 
-    localStorage.setItem(
-      "portfolio-strategy-levels",
-      JSON.stringify(nextLevels)
-    );
-
-    setStrategyLevels(nextLevels);
     setStrategyLevelsOriginal(null);
     setStrategyEditorAsset(null);
   }
 
   function getSavedStrategyLevels(asset) {
-    try {
-      const savedValue = localStorage.getItem(
-        "portfolio-strategy-levels"
-      );
-
-      const allLevels = savedValue
-        ? JSON.parse(savedValue)
-        : {};
-
-      return allLevels[String(asset.dbId)] || {};
-    } catch (error) {
-      console.error(
-        "Erreur lecture niveaux stratégie :",
-        error
-      );
-
-      return {};
-    }
+    return strategyLevels[String(asset.dbId)] || {};
   }
 
   function openTraderLevelsEditor(asset) {
     const strategyKey = String(asset.dbId);
-
-    let storedLevels = [];
-
-    try {
-      const raw = localStorage.getItem(
-        "portfolio-trader-levels"
-      );
-
-      const allLevels = raw ? JSON.parse(raw) : {};
-      storedLevels = Array.isArray(allLevels[strategyKey])
-        ? allLevels[strategyKey]
-        : [];
-    } catch (error) {
-      console.error(
-        "Erreur lecture niveaux Trader :",
-        error
-      );
-    }
+    const storedLevels = Array.isArray(traderLevels[strategyKey])
+      ? traderLevels[strategyKey]
+      : [];
 
     const normalizedDraft = [0, 1, 2, 3].map(
       (index) => ({
@@ -504,9 +487,28 @@ export default function App() {
     setStrategyEditorAsset(asset);
   }
 
-  function cancelTraderLevels() {
+  async function cancelTraderLevels() {
     if (strategyEditorAsset) {
       const strategyKey = String(strategyEditorAsset.dbId);
+
+      const { error } = await supabase
+        .from("portfolios")
+        .update({
+          strategy_mode: null,
+          trader_levels: null,
+        })
+        .eq("id", strategyEditorAsset.dbId);
+
+      if (error) {
+        console.error(
+          "Erreur suppression stratégie Trader :",
+          error
+        );
+        setMessage(
+          "Impossible de supprimer la stratégie Trader."
+        );
+        return;
+      }
 
       setStrategyModes((previousModes) => ({
         ...previousModes,
@@ -516,12 +518,6 @@ export default function App() {
       setTraderLevels((previousLevels) => {
         const nextLevels = { ...previousLevels };
         delete nextLevels[strategyKey];
-
-        localStorage.setItem(
-          "portfolio-trader-levels",
-          JSON.stringify(nextLevels)
-        );
-
         return nextLevels;
       });
 
@@ -550,7 +546,7 @@ export default function App() {
     setStrategyEditorAsset(null);
   }
 
-  function saveTraderLevels() {
+  async function saveTraderLevels() {
     if (!strategyEditorAsset) {
       return;
     }
@@ -569,21 +565,39 @@ export default function App() {
       })
     );
 
-    const nextLevels = {
-      ...traderLevels,
+    const { error } = await supabase
+      .from("portfolios")
+      .update({
+        strategy_mode: "trade",
+        trader_levels: savedLevels,
+      })
+      .eq("id", strategyEditorAsset.dbId);
+
+    if (error) {
+      console.error(
+        "Erreur enregistrement stratégie Trader :",
+        error
+      );
+      setMessage(
+        "Impossible d’enregistrer la stratégie Trader."
+      );
+      return;
+    }
+
+    setStrategyModes((previousModes) => ({
+      ...previousModes,
+      [strategyKey]: "trade",
+    }));
+
+    setTraderLevels((previousLevels) => ({
+      ...previousLevels,
       [strategyKey]: savedLevels,
-    };
+    }));
 
-    localStorage.setItem(
-      "portfolio-trader-levels",
-      JSON.stringify(nextLevels)
-    );
-
-    setTraderLevels(nextLevels);
     setStrategyEditorAsset(null);
   }
 
-  function changeStrategyMode(asset, nextMode) {
+  async function changeStrategyMode(asset, nextMode) {
     const strategyKey = String(asset.dbId);
 
     const currentMode =
@@ -599,6 +613,22 @@ export default function App() {
       );
 
       if (!confirmed) {
+        return;
+      }
+
+      const { error } = await supabase
+        .from("portfolios")
+        .update({ strategy_mode: null })
+        .eq("id", asset.dbId);
+
+      if (error) {
+        console.error(
+          "Erreur désactivation stratégie :",
+          error
+        );
+        setMessage(
+          "Impossible de désactiver la stratégie."
+        );
         return;
       }
 
@@ -629,6 +659,22 @@ export default function App() {
     );
 
     if (!confirmed) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from("portfolios")
+      .update({ strategy_mode: nextMode })
+      .eq("id", asset.dbId);
+
+    if (error) {
+      console.error(
+        "Erreur changement stratégie :",
+        error
+      );
+      setMessage(
+        "Impossible de modifier la stratégie."
+      );
       return;
     }
 
@@ -663,8 +709,108 @@ export default function App() {
       return;
     }
 
+    const localModes = { ...strategyModes };
+    const localHoldLevels = { ...strategyLevels };
+    const localTraderLevels = { ...traderLevels };
+
+    const syncedModes = {};
+    const syncedHoldLevels = {};
+    const syncedTraderLevels = {};
+    const migrations = [];
+
+    (data || []).forEach((item) => {
+      const strategyKey = String(item.id);
+
+      const databaseMode =
+        item.strategy_mode === "hold" ||
+        item.strategy_mode === "trade"
+          ? item.strategy_mode
+          : null;
+
+      const databaseHoldLevels =
+        item.hold_levels &&
+        typeof item.hold_levels === "object" &&
+        !Array.isArray(item.hold_levels)
+          ? item.hold_levels
+          : null;
+
+      const databaseTraderLevels = Array.isArray(
+        item.trader_levels
+      )
+        ? item.trader_levels
+        : null;
+
+      const fallbackMode = localModes[strategyKey] || null;
+      const fallbackHoldLevels =
+        localHoldLevels[strategyKey] || null;
+      const fallbackTraderLevels = Array.isArray(
+        localTraderLevels[strategyKey]
+      )
+        ? localTraderLevels[strategyKey]
+        : null;
+
+      const resolvedMode = databaseMode || fallbackMode;
+      const resolvedHoldLevels =
+        databaseHoldLevels || fallbackHoldLevels;
+      const resolvedTraderLevels =
+        databaseTraderLevels || fallbackTraderLevels;
+
+      if (resolvedMode) {
+        syncedModes[strategyKey] = resolvedMode;
+      }
+
+      if (resolvedHoldLevels) {
+        syncedHoldLevels[strategyKey] = resolvedHoldLevels;
+      }
+
+      if (resolvedTraderLevels) {
+        syncedTraderLevels[strategyKey] = resolvedTraderLevels;
+      }
+
+      const migrationPayload = {};
+
+      if (!databaseMode && fallbackMode) {
+        migrationPayload.strategy_mode = fallbackMode;
+      }
+
+      if (!databaseHoldLevels && fallbackHoldLevels) {
+        migrationPayload.hold_levels = fallbackHoldLevels;
+      }
+
+      if (!databaseTraderLevels && fallbackTraderLevels) {
+        migrationPayload.trader_levels = fallbackTraderLevels;
+      }
+
+      if (Object.keys(migrationPayload).length > 0) {
+        migrations.push(
+          supabase
+            .from("portfolios")
+            .update(migrationPayload)
+            .eq("id", item.id)
+        );
+      }
+    });
+
+    setStrategyModes(syncedModes);
+    setStrategyLevels(syncedHoldLevels);
+    setTraderLevels(syncedTraderLevels);
+
+    if (migrations.length > 0) {
+      const migrationResults = await Promise.all(migrations);
+      const migrationError = migrationResults.find(
+        (result) => result.error
+      )?.error;
+
+      if (migrationError) {
+        console.error(
+          "Erreur migration stratégies vers Supabase :",
+          migrationError
+        );
+      }
+    }
+
     setAssets((previousAssets) =>
-      data
+      (data || [])
         .filter((item) => Number(item.quantite || 0) > 0)
         .map((item) => {
           const existingAsset = previousAssets.find(
