@@ -4654,7 +4654,7 @@ export default function App() {
                       style={{
                         display: "grid",
                         gridTemplateColumns:
-                          "minmax(0, 1fr) minmax(0, 1fr)",
+                          "minmax(0, 1fr) minmax(0, 1fr) minmax(130px, .85fr)",
                         gap: 10,
                       }}
                     >
@@ -4711,6 +4711,50 @@ export default function App() {
                         placeholder="Pourcentage à vendre (%)"
                         style={styles.input}
                       />
+
+                      <div
+                        title="Quantité calculée automatiquement"
+                        style={{
+                          ...styles.input,
+                          display: "flex",
+                          alignItems: "center",
+                          minWidth: 0,
+                          color: "#d8e6dc",
+                          background: "rgba(4,18,13,.78)",
+                          cursor: "default",
+                        }}
+                      >
+                        {(() => {
+                          const percent = Number(
+                            String(
+                              traderLevelsDraft[index]
+                                ?.percent ?? ""
+                            )
+                              .trim()
+                              .replace(",", ".")
+                          );
+
+                          const quantity = Number(
+                            strategyEditorAsset?.quantity || 0
+                          );
+
+                          if (
+                            !Number.isFinite(percent) ||
+                            percent <= 0 ||
+                            percent > 100 ||
+                            !Number.isFinite(quantity) ||
+                            quantity <= 0
+                          ) {
+                            return "Quantité à vendre";
+                          }
+
+                          return `${formatNumber(
+                            (quantity * percent) / 100
+                          )} ${
+                            strategyEditorAsset?.symbol || ""
+                          }`;
+                        })()}
+                      </div>
                     </div>
                   ))}
                 </div>
