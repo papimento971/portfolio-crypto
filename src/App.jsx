@@ -2731,15 +2731,21 @@ export default function App() {
                     </div>
                                         <div
                       style={styles.strategyBox}
+                      className="ld-strategy-box"
                     >
                       <div
                         style={styles.strategyTopRow}
+                        className="ld-strategy-top-row"
                       >
                         <div
                           style={styles.strategyLabel}
+                          className="ld-strategy-label"
                         >
-                          <span>
+                          <span className="ld-strategy-label-desktop">
                             Stratégie de position
+                          </span>
+                          <span className="ld-strategy-label-mobile">
+                            Stratégies
                           </span>
 
                           <span
@@ -2752,9 +2758,11 @@ export default function App() {
 
                         <div
                           style={styles.strategyControls}
+                          className="ld-strategy-controls"
                         >
                           <button
                             type="button"
+                            className="ld-strategy-choice"
                             style={{
                               ...styles.strategyChoice,
                               ...(strategyModes[
@@ -2771,6 +2779,7 @@ export default function App() {
                             }
                           >
                             <span
+                              className="ld-strategy-checkbox"
                               style={{
                                 ...styles.strategyCheckbox,
                                 ...(strategyModes[
@@ -2788,6 +2797,7 @@ export default function App() {
                             </span>
 
                             <span
+                              className="ld-strategy-choice-text"
                               style={styles.strategyChoiceText}
                             >
                               <strong>
@@ -2800,6 +2810,7 @@ export default function App() {
 
                           <button
                             type="button"
+                            className="ld-strategy-choice"
                             style={{
                               ...styles.strategyChoice,
                               ...(strategyModes[
@@ -2816,6 +2827,7 @@ export default function App() {
                             }
                           >
                             <span
+                              className="ld-strategy-checkbox"
                               style={{
                                 ...styles.strategyCheckbox,
                                 ...(strategyModes[
@@ -2833,6 +2845,7 @@ export default function App() {
                             </span>
 
                             <span
+                              className="ld-strategy-choice-text"
                               style={styles.strategyChoiceText}
                             >
                               <strong>
@@ -5398,6 +5411,8 @@ const responsiveCss = `
   button { transition: transform .18s ease, filter .18s ease, border-color .18s ease, background .18s ease; }
   button:hover { filter: brightness(1.08); }
   button:active { transform: translateY(1px); }
+  .ld-strategy-label-mobile { display: none; }
+
 
   @media (max-width: 720px) {
     .ld-page { padding: 18px 12px 36px !important; }
@@ -5515,6 +5530,45 @@ const responsiveCss = `
     .ld-card-performance {
       flex-shrink: 0 !important;
       font-size: 15px !important;
+      white-space: nowrap !important;
+    }
+
+    .ld-strategy-label-desktop {
+      display: none !important;
+    }
+
+    .ld-strategy-label-mobile {
+      display: inline !important;
+    }
+
+    .ld-strategy-top-row {
+      gap: 6px !important;
+    }
+
+    .ld-strategy-label {
+      gap: 4px !important;
+      font-size: 11px !important;
+    }
+
+    .ld-strategy-controls {
+      gap: 4px !important;
+    }
+
+    .ld-strategy-choice {
+      gap: 4px !important;
+      padding: 6px 7px !important;
+      border-radius: 7px !important;
+      flex: 0 1 auto !important;
+    }
+
+    .ld-strategy-checkbox {
+      width: 16px !important;
+      height: 16px !important;
+      font-size: 11px !important;
+    }
+
+    .ld-strategy-choice-text {
+      font-size: 12px !important;
       white-space: nowrap !important;
     }
 
