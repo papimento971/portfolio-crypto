@@ -39,12 +39,19 @@ export default function App() {
   const [usdToEur, setUsdToEur] = useState(0.92);
   const [realizedGainUSD, setRealizedGainUSD] = useState(0);
   const [realizedGainDetails, setRealizedGainDetails] = useState([]);
+    const [realizedSalesUSD, setRealizedSalesUSD] = useState(0);
+  const [realizedSalesByToken, setRealizedSalesByToken] = useState({});
+    const [availableUsdcByToken, setAvailableUsdcByToken] = useState({});
   const [showRealizedDetails, setShowRealizedDetails] = useState(false);
+  const [showUsdcDetails, setShowUsdcDetails] = useState(false);
   const [showProfitAmounts, setShowProfitAmounts] = useState(false);
   const [showRealizedAmounts, setShowRealizedAmounts] = useState(false);
+  const [showUsdcAmounts, setShowUsdcAmounts] = useState(false);
   
   const [showInvestedAmounts, setShowInvestedAmounts] = useState(false);
   const [showCurrentAmounts, setShowCurrentAmounts] = useState(false);
+  const [showInvestedChart, setShowInvestedChart] = useState(false);
+  const [showCurrentChart, setShowCurrentChart] = useState(false);
  
   const [message, setMessage] = useState("");
 
@@ -122,47 +129,189 @@ export default function App() {
     { price: "", percent: "" },
   ]);
 
-  const strategyHoldAlertState = useRef({});
-  const strategyTraderAlertState = useRef({});
+    const [activeAlerts, setActiveAlerts] = useState(() => {
+    try {
+      const savedValue = localStorage.getItem(
+        "portfolio-active-alerts"
+      );
+
+      const parsed = savedValue
+        ? JSON.parse(savedValue)
+        : [];
+
+      return Array.isArray(parsed)
+        ? parsed
+        : [];
+    } catch (error) {
+      console.error(
+        "Erreur chargement alertes actives :",
+        error
+      );
+
+      return [];
+    }
+  });
+
+  const [showAlerts, setShowAlerts] = useState(false);
+
+    const strategyAlertLifecycle = useRef(null);
+
+  if (strategyAlertLifecycle.current === null) {
+    try {
+      const savedValue = localStorage.getItem(
+        "portfolio-alert-lifecycle"
+      );
+
+      const parsed = savedValue
+        ? JSON.parse(savedValue)
+        : {};
+
+      strategyAlertLifecycle.current =
+        parsed &&
+        typeof parsed === "object" &&
+        !Array.isArray(parsed)
+          ? parsed
+          : {};
+    } catch (error) {
+      console.error(
+        "Erreur chargement état des alertes :",
+        error
+      );
+
+      strategyAlertLifecycle.current = {};
+    }
+  }
+
+  const acknowledgedAlerts = useRef(null);
+
+  if (acknowledgedAlerts.current === null) {
+    try {
+      const savedValue = localStorage.getItem(
+        "portfolio-acknowledged-alerts"
+      );
+
+      const parsed = savedValue
+        ? JSON.parse(savedValue)
+        : {};
+
+      acknowledgedAlerts.current =
+        parsed &&
+        typeof parsed === "object" &&
+        !Array.isArray(parsed)
+          ? parsed
+          : {};
+    } catch (error) {
+      console.error(
+        "Erreur chargement alertes acquittées :",
+        error
+      );
+
+      acknowledgedAlerts.current = {};
+    }
+  }
+
+  function saveAcknowledgedAlerts() {
+    try {
+      localStorage.setItem(
+        "portfolio-acknowledged-alerts",
+        JSON.stringify(
+          acknowledgedAlerts.current
+        )
+      );
+    } catch (error) {
+      console.error(
+        "Erreur sauvegarde alertes acquittées :",
+        error
+      );
+    }
+  }
+
+  function saveAlertLifecycle() {
+    try {
+      localStorage.setItem(
+        "portfolio-alert-lifecycle",
+        JSON.stringify(
+          strategyAlertLifecycle.current
+        )
+      );
+    } catch (error) {
+      console.error(
+        "Erreur sauvegarde état des alertes :",
+        error
+      );
+    }
+  }
+
+  function addActiveAlert(alert) {
+    setActiveAlerts((previousAlerts) => {
+      const alreadyExists =
+        previousAlerts.some(
+          (existingAlert) =>
+            existingAlert.id === alert.id
+        );
+
+      if (alreadyExists) {
+        return previousAlerts;
+      }
+
+      return [
+        alert,
+        ...previousAlerts,
+      ];
+    });
+  }
+
+    function dismissAlert(alertId) {
+    acknowledgedAlerts.current[alertId] = true;
+    saveAcknowledgedAlerts();
+
+    setActiveAlerts((previousAlerts) => {
+      const nextAlerts =
+        previousAlerts.filter(
+          (alert) => alert.id !== alertId
+        );
+
+      try {
+        localStorage.setItem(
+          "portfolio-active-alerts",
+          JSON.stringify(nextAlerts)
+        );
+      } catch (error) {
+        console.error(
+          "Erreur sauvegarde alerte acquittée :",
+          error
+        );
+      }
+
+      return nextAlerts;
+    });
+  }
 
   useEffect(() => {
-    if (!strategyEditorAsset) {
+    try {
+      localStorage.setItem(
+        "portfolio-active-alerts",
+        JSON.stringify(activeAlerts)
+      );
+    } catch (error) {
+      console.error(
+        "Erreur sauvegarde alertes actives :",
+        error
+      );
+    }
+  }, [activeAlerts]);
+
+  useEffect(() => {
+    if (activeAlerts.length === 0) {
+      setShowAlerts(false);
+    }
+  }, [activeAlerts.length]);
+
+  useEffect(() => {
+        if (assets.length === 0) {
       return;
     }
-
-    const strategyKey = String(strategyEditorAsset.dbId);
-    const savedLevels = strategyLevels[strategyKey] || {};
-
-    setStrategyLevelsDraft({
-      best: savedLevels.best ?? "",
-      good: savedLevels.good ?? "",
-      average: savedLevels.average ?? "",
-    });
-  }, [strategyEditorAsset, strategyLevels]);
-
-  useEffect(() => {
-    localStorage.setItem(
-      "portfolio-strategy-levels",
-      JSON.stringify(strategyLevels)
-    );
-  }, [strategyLevels]);
-
-  useEffect(() => {
-    localStorage.setItem(
-      "portfolio-trader-levels",
-      JSON.stringify(traderLevels)
-    );
-  }, [traderLevels]);
-
-  useEffect(() => {
-    localStorage.setItem(
-      "portfolio-strategy-modes",
-      JSON.stringify(strategyModes)
-    );
-  }, [strategyModes]);
-
-  useEffect(() => {
-    const activeAlertKeys = new Set();
+    const validAlertKeys = new Set();
 
     assets.forEach((asset) => {
       const strategyKey = String(asset.dbId);
@@ -171,7 +320,9 @@ export default function App() {
         return;
       }
 
-      const currentPrice = Number(asset.currentPrice);
+      const currentPrice = Number(
+        asset.currentPrice
+      );
 
       if (
         !Number.isFinite(currentPrice) ||
@@ -216,44 +367,78 @@ export default function App() {
         }
 
         const alertKey =
-          `${strategyKey}:${level.id}:${targetPrice}`;
+          `${strategyKey}:hold:${level.id}:${targetPrice}`;
 
-        activeAlertKeys.add(alertKey);
+        validAlertKeys.add(alertKey);
 
         const isReached =
           currentPrice <= targetPrice;
 
+        const wasReached =
+          Boolean(
+            strategyAlertLifecycle.current[
+              alertKey
+            ]?.isReached
+          );
+
+                const isAcknowledged =
+          Boolean(
+            acknowledgedAlerts.current[
+              alertKey
+            ]
+          );
+
         if (
           isReached &&
-          !strategyHoldAlertState.current[alertKey]
+          !wasReached &&
+          !isAcknowledged
         ) {
-          strategyHoldAlertState.current[alertKey] = true;
-
-          window.alert(
-            `Alerte Conserver — ${asset.name || asset.symbol || asset.id}\n\n` +
-              `${level.label} atteint.\n` +
-              `Niveau : $${targetPrice}\n` +
-              `Prix actuel : $${currentPrice}`
-          );
+          addActiveAlert({
+            id: alertKey,
+            strategyKey,
+            type: "hold",
+            token:
+              asset.name ||
+              asset.symbol ||
+              asset.id,
+            symbol:
+              asset.symbol ||
+              asset.id,
+            title: "Alerte Conserver",
+            message: `${level.label} atteint`,
+            targetPrice,
+            currentPrice,
+            createdAt: new Date().toISOString(),
+          });
         }
 
-        if (!isReached) {
-          strategyHoldAlertState.current[alertKey] = false;
+        if (!isReached && isAcknowledged) {
+          delete acknowledgedAlerts.current[
+            alertKey
+          ];
+
+          saveAcknowledgedAlerts();
         }
+
+        strategyAlertLifecycle.current[
+          alertKey
+        ] = {
+          isReached,
+          updatedAt: new Date().toISOString(),
+        };
       });
     });
 
-    Object.keys(
-      strategyHoldAlertState.current
-    ).forEach((alertKey) => {
-      if (!activeAlertKeys.has(alertKey)) {
-        delete strategyHoldAlertState.current[alertKey];
-      }
-    });
+   
+
+    saveAlertLifecycle();
   }, [assets, strategyModes, strategyLevels]);
 
   useEffect(() => {
-    const activeAlertKeys = new Set();
+        if (assets.length === 0) {
+      return;
+    }
+    const validAlertKeys = new Set();
 
     assets.forEach((asset) => {
       const strategyKey = String(asset.dbId);
@@ -262,7 +447,9 @@ export default function App() {
         return;
       }
 
-      const currentPrice = Number(asset.currentPrice);
+      const currentPrice = Number(
+        asset.currentPrice
+      );
 
       if (
         !Number.isFinite(currentPrice) ||
@@ -300,39 +487,69 @@ export default function App() {
         const alertKey =
           `${strategyKey}:trade:${index}:${targetPrice}:${percent}`;
 
-        activeAlertKeys.add(alertKey);
+        validAlertKeys.add(alertKey);
 
         const isReached =
           currentPrice >= targetPrice;
 
+        const wasReached =
+          Boolean(
+            strategyAlertLifecycle.current[
+              alertKey
+            ]?.isReached
+          );
+
+                const isAcknowledged =
+          Boolean(
+            acknowledgedAlerts.current[
+              alertKey
+            ]
+          );
+
         if (
           isReached &&
-          !strategyTraderAlertState.current[alertKey]
+          !wasReached &&
+          !isAcknowledged
         ) {
-          strategyTraderAlertState.current[alertKey] = true;
-
-          window.alert(
-            `Alerte Trader — ${asset.name || asset.symbol || asset.id}\n\n` +
-              `Niveau de sortie ${index + 1} atteint.\n` +
-              `Prix de sortie : $${targetPrice}\n` +
-              `Pourcentage prévu : ${percent}%\n` +
-              `Prix actuel : $${currentPrice}`
-          );
+          addActiveAlert({
+            id: alertKey,
+            strategyKey,
+            type: "trade",
+            token:
+              asset.name ||
+              asset.symbol ||
+              asset.id,
+            symbol:
+              asset.symbol ||
+              asset.id,
+            title: "Alerte Trader",
+            message:
+              `Niveau de sortie ${index + 1} atteint — ${percent}% prévu`,
+            targetPrice,
+            currentPrice,
+            createdAt: new Date().toISOString(),
+          });
         }
 
-        if (!isReached) {
-          strategyTraderAlertState.current[alertKey] = false;
+        if (!isReached && isAcknowledged) {
+          delete acknowledgedAlerts.current[
+            alertKey
+          ];
+
+          saveAcknowledgedAlerts();
         }
+
+        strategyAlertLifecycle.current[
+          alertKey
+        ] = {
+          isReached,
+          updatedAt: new Date().toISOString(),
+        };
       });
     });
 
-    Object.keys(
-      strategyTraderAlertState.current
-    ).forEach((alertKey) => {
-      if (!activeAlertKeys.has(alertKey)) {
-        delete strategyTraderAlertState.current[alertKey];
-      }
-    });
+
+    saveAlertLifecycle();
   }, [assets, strategyModes, traderLevels]);
 
   function openStrategyLevelsEditor(asset) {
@@ -396,12 +613,30 @@ export default function App() {
         return nextLevels;
       });
 
-      Object.keys(strategyHoldAlertState.current).forEach(
-        (alertKey) => {
-          if (alertKey.startsWith(`${strategyKey}:`)) {
-            delete strategyHoldAlertState.current[alertKey];
-          }
+          Object.keys(
+        strategyAlertLifecycle.current
+      ).forEach((alertKey) => {
+        if (
+          alertKey.startsWith(
+            `${strategyKey}:hold:`
+          )
+        ) {
+          delete strategyAlertLifecycle.current[
+            alertKey
+          ];
         }
+      });
+
+      saveAlertLifecycle();
+
+      setActiveAlerts((previousAlerts) =>
+        previousAlerts.filter(
+          (alert) =>
+            !(
+              alert.strategyKey === strategyKey &&
+              alert.type === "hold"
+            )
+        )
       );
     }
 
@@ -521,19 +756,31 @@ export default function App() {
         return nextLevels;
       });
 
-      Object.keys(
-        strategyTraderAlertState.current
+           Object.keys(
+        strategyAlertLifecycle.current
       ).forEach((alertKey) => {
         if (
           alertKey.startsWith(
             `${strategyKey}:trade:`
           )
         ) {
-          delete strategyTraderAlertState.current[
+          delete strategyAlertLifecycle.current[
             alertKey
           ];
         }
       });
+
+      saveAlertLifecycle();
+
+      setActiveAlerts((previousAlerts) =>
+        previousAlerts.filter(
+          (alert) =>
+            !(
+              alert.strategyKey === strategyKey &&
+              alert.type === "trade"
+            )
+        )
+      );
     }
 
     setTraderLevelsDraft([
@@ -860,7 +1107,7 @@ export default function App() {
     const { data, error } = await supabase
       .from("portfolio_transactions")
       .select(
-        "id, crypto, quantity, unit_price, average_price_before, created_at"
+        "id, portfolio_id, crypto, quantity, unit_price, average_price_before, created_at"
       )
       .eq("type", "sale")
       .order("created_at", { ascending: false });
@@ -871,7 +1118,210 @@ export default function App() {
     }
 
     const sales = data || [];
+    const { data: existingReserveSales, error: reserveReadError } =
+      await supabase
+        .from("usdc_reserve_movements")
+        .select("related_transaction_id")
+        .eq("movement_type", "sale");
 
+    if (reserveReadError) {
+      console.error(
+        "Erreur lecture registre USDC :",
+        reserveReadError
+      );
+    } else {
+      const existingTransactionIds = new Set(
+        (existingReserveSales || [])
+          .map((movement) =>
+            Number(movement.related_transaction_id)
+          )
+          .filter(Number.isFinite)
+      );
+
+      const missingReserveSales = sales
+        .filter(
+          (transaction) =>
+            !existingTransactionIds.has(
+              Number(transaction.id)
+            )
+        )
+        .map((transaction) => ({
+          source_portfolio_id:
+            transaction.portfolio_id ?? null,
+          source_crypto:
+            String(transaction.crypto || ""),
+          destination_portfolio_id: null,
+          destination_crypto: null,
+          movement_type: "sale",
+          amount_usdc:
+            Number(transaction.quantity || 0) *
+            Number(transaction.unit_price || 0),
+          related_transaction_id:
+            transaction.id,
+        }))
+        .filter(
+          (movement) =>
+            movement.source_crypto &&
+            Number.isFinite(movement.amount_usdc) &&
+            movement.amount_usdc > 0
+        );
+
+      if (missingReserveSales.length > 0) {
+        const { error: reserveInsertError } =
+          await supabase
+            .from("usdc_reserve_movements")
+            .insert(missingReserveSales);
+
+        if (reserveInsertError) {
+          console.error(
+            "Erreur synchronisation ventes vers registre USDC :",
+            reserveInsertError
+          );
+        }
+      }
+    }
+           const {
+      data: reserveMovements,
+      error: reserveMovementsError,
+    } = await supabase
+      .from("usdc_reserve_movements")
+      .select(
+        "id, source_portfolio_id, source_crypto, destination_portfolio_id, destination_crypto, movement_type, amount_usdc, created_at"
+      )
+      .order("created_at", { ascending: true });
+
+    if (reserveMovementsError) {
+      console.error(
+        "Erreur calcul réserves USDC :",
+        reserveMovementsError
+      );
+    } else {
+      const reserveBalances = {};
+
+      (reserveMovements || []).forEach(
+        (movement) => {
+          const sourcePortfolioId =
+            movement.source_portfolio_id != null
+              ? String(
+                  movement.source_portfolio_id
+                )
+              : "";
+
+          const destinationPortfolioId =
+            movement.destination_portfolio_id != null
+              ? String(
+                  movement.destination_portfolio_id
+                )
+              : "";
+
+          const sourceCrypto = String(
+            movement.source_crypto || ""
+          );
+
+          const destinationCrypto = String(
+            movement.destination_crypto || ""
+          );
+
+          const amount = Number(
+            movement.amount_usdc || 0
+          );
+
+          if (
+            !Number.isFinite(amount) ||
+            amount <= 0
+          ) {
+            return;
+          }
+
+          if (movement.movement_type === "sale") {
+            if (!sourcePortfolioId) {
+              return;
+            }
+
+            if (!reserveBalances[sourcePortfolioId]) {
+              reserveBalances[sourcePortfolioId] = {
+                portfolioId:
+                  movement.source_portfolio_id,
+                crypto: sourceCrypto,
+                availableUsdc: 0,
+              };
+            }
+
+            reserveBalances[
+              sourcePortfolioId
+            ].availableUsdc += amount;
+
+            return;
+          }
+
+          if (movement.movement_type === "reload") {
+            if (!sourcePortfolioId) {
+              return;
+            }
+
+            if (!reserveBalances[sourcePortfolioId]) {
+              reserveBalances[sourcePortfolioId] = {
+                portfolioId:
+                  movement.source_portfolio_id,
+                crypto: sourceCrypto,
+                availableUsdc: 0,
+              };
+            }
+
+            reserveBalances[
+              sourcePortfolioId
+            ].availableUsdc -= amount;
+
+            return;
+          }
+
+          if (movement.movement_type === "transfer") {
+            if (
+              !sourcePortfolioId ||
+              !destinationPortfolioId
+            ) {
+              return;
+            }
+
+            if (!reserveBalances[sourcePortfolioId]) {
+              reserveBalances[sourcePortfolioId] = {
+                portfolioId:
+                  movement.source_portfolio_id,
+                crypto: sourceCrypto,
+                availableUsdc: 0,
+              };
+            }
+
+            if (
+              !reserveBalances[
+                destinationPortfolioId
+              ]
+            ) {
+              reserveBalances[
+                destinationPortfolioId
+              ] = {
+                portfolioId:
+                  movement.destination_portfolio_id,
+                crypto: destinationCrypto,
+                availableUsdc: 0,
+              };
+            }
+
+            reserveBalances[
+              sourcePortfolioId
+            ].availableUsdc -= amount;
+
+            reserveBalances[
+              destinationPortfolioId
+            ].availableUsdc += amount;
+          }
+        }
+      );
+
+      setAvailableUsdcByToken(
+        reserveBalances
+      );
+    }
     const detailedSales = sales.map((transaction) => {
       const quantity = Number(transaction.quantity || 0);
       const salePrice = Number(transaction.unit_price || 0);
@@ -889,13 +1339,55 @@ export default function App() {
       };
     });
 
-    const totalGain = detailedSales.reduce(
+        const totalGain = detailedSales.reduce(
       (total, transaction) => total + transaction.gain,
+      0
+    );
+
+    const salesByToken = detailedSales.reduce(
+      (result, transaction) => {
+        const tokenKey = String(
+          transaction.crypto || ""
+        );
+
+        const saleAmount =
+          Number(transaction.quantity || 0) *
+          Number(transaction.unit_price || 0);
+
+        if (!tokenKey) {
+          return result;
+        }
+
+        if (!result[tokenKey]) {
+          result[tokenKey] = {
+            crypto: tokenKey,
+            totalSalesUSD: 0,
+            saleCount: 0,
+          };
+        }
+
+        result[tokenKey].totalSalesUSD +=
+          saleAmount;
+
+        result[tokenKey].saleCount += 1;
+
+        return result;
+      },
+      {}
+    );
+
+    const totalSalesUSD = Object.values(
+      salesByToken
+    ).reduce(
+      (total, tokenSales) =>
+        total + tokenSales.totalSalesUSD,
       0
     );
 
     setRealizedGainUSD(totalGain);
     setRealizedGainDetails(detailedSales);
+    setRealizedSalesUSD(totalSalesUSD);
+    setRealizedSalesByToken(salesByToken);
   }
 
   useEffect(() => {
@@ -1914,6 +2406,56 @@ export default function App() {
         100
       : 0;
 
+  const availableUsdcTotal = useMemo(() => {
+    return Object.values(availableUsdcByToken).reduce(
+      (total, reserve) => {
+        const amount = Number(reserve?.availableUsdc || 0);
+
+        return Number.isFinite(amount)
+          ? total + amount
+          : total;
+      },
+      0
+    );
+  }, [availableUsdcByToken]);
+
+  const usdcReserveDetails = useMemo(() => {
+    return Object.values(availableUsdcByToken)
+      .map((reserve) => {
+        const portfolioId = reserve?.portfolioId;
+        const strategyMode =
+          strategyModes[String(portfolioId)] || null;
+
+        const sales = realizedGainDetails.filter(
+          (transaction) =>
+            String(transaction.portfolio_id) ===
+            String(portfolioId)
+        );
+
+        return {
+          ...reserve,
+          strategyMode,
+          sales,
+          availableUsdc: Number(
+            reserve?.availableUsdc || 0
+          ),
+        };
+      })
+      .filter(
+        (reserve) =>
+          Number.isFinite(reserve.availableUsdc) &&
+          reserve.availableUsdc > 0
+      )
+      .sort(
+        (a, b) =>
+          b.availableUsdc - a.availableUsdc
+      );
+  }, [
+    availableUsdcByToken,
+    realizedGainDetails,
+    strategyModes,
+  ]);
+
   function getPriceDecimals(value) {
     const v = Math.abs(
       Number(value) || 0
@@ -2002,12 +2544,159 @@ export default function App() {
             </p>
           </div>
 
-          <div style={styles.logoFrame}>
-            <img
-              src={ldLogo}
-              alt="Logo Live Dashboard"
-              style={styles.brandLogo}
-            />
+                <div style={styles.headerActions}>
+            <div style={styles.alertCenter}>
+              <button
+                type="button"
+                style={styles.alertButton}
+                onClick={() =>
+                  setShowAlerts(
+                    (previousValue) =>
+                      !previousValue
+                  )
+                }
+                title="Alertes"
+              >
+                <span style={styles.alertBell}>
+                  🔔
+                </span>
+
+                {activeAlerts.length > 0 && (
+                  <span style={styles.alertBadge}>
+                    {activeAlerts.length > 99
+                      ? "99+"
+                      : activeAlerts.length}
+                  </span>
+                )}
+              </button>
+
+              {showAlerts && (
+                <div style={styles.alertPanel}>
+                  <div
+                    style={styles.alertPanelHeader}
+                  >
+                    <div>
+                      <strong
+                        style={styles.alertPanelTitle}
+                      >
+                        Alertes
+                      </strong>
+
+                      <span
+                        style={styles.alertPanelCount}
+                      >
+                        {activeAlerts.length} alerte
+                        {activeAlerts.length > 1
+                          ? "s"
+                          : ""}
+                      </span>
+                    </div>
+                  </div>
+
+                  {activeAlerts.length === 0 ? (
+                    <div
+                      style={styles.alertEmpty}
+                    >
+                      Aucune alerte active.
+                    </div>
+                  ) : (
+                    <div
+                      style={styles.alertList}
+                    >
+                      {activeAlerts.map(
+                        (alert) => (
+                          <div
+                            key={alert.id}
+                            style={
+                              styles.alertItem
+                            }
+                          >
+                            <div
+                              style={
+                                styles.alertItemContent
+                              }
+                            >
+                              <div
+                                style={
+                                  styles.alertItemTop
+                                }
+                              >
+                                <strong
+                                  style={{
+                                    ...styles.alertItemTitle,
+                                    color:
+                                      alert.type ===
+                                      "trade"
+                                        ? "#f1c75b"
+                                        : "#74e78a",
+                                  }}
+                                >
+                                  {alert.token}
+                                </strong>
+
+                                <span
+                                  style={
+                                    styles.alertType
+                                  }
+                                >
+                                  {alert.type ===
+                                  "trade"
+                                    ? "TRADER"
+                                    : "CONSERVER"}
+                                </span>
+                              </div>
+
+                              <span
+                                style={
+                                  styles.alertMessage
+                                }
+                              >
+                                {alert.message}
+                              </span>
+
+                              <span
+                                style={
+                                  styles.alertPrices
+                                }
+                              >
+                                Niveau : $
+                                {alert.targetPrice}
+                                {" · "}
+                                Prix détecté : $
+                                {alert.currentPrice}
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              style={
+                                styles.alertDismissButton
+                              }
+                              onClick={() =>
+                                dismissAlert(
+                                  alert.id
+                                )
+                              }
+                              title="Alerte lue"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        )
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div style={styles.logoFrame}>
+              <img
+                src={ldLogo}
+                alt="Logo Live Dashboard"
+                style={styles.brandLogo}
+              />
+            </div>
           </div>
         </header>
 
@@ -3429,15 +4118,75 @@ export default function App() {
                 </button>
               </div>
 
-                            <div
+              <div
                 style={{
                   width: "100%",
-                  marginTop: 28,
-                  overflow: "hidden",
+                  display: "flex",
+                  justifyContent: "center",
+                  marginTop: 10,
                 }}
               >
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowInvestedChart(
+                      (current) => !current
+                    )
+                  }
+                  aria-label={
+                    showInvestedChart
+                      ? "Masquer la répartition du montant investi"
+                      : "Afficher la répartition du montant investi"
+                  }
+                  title={
+                    showInvestedChart
+                      ? "Masquer la répartition"
+                      : "Afficher la répartition"
+                  }
+                  style={{
+                    minHeight: 38,
+                    padding: "8px 18px",
+                    border:
+                      "1px solid rgba(213,167,75,.45)",
+                    borderRadius: 10,
+                    background:
+                      "rgba(146,102,24,.10)",
+                    color: "#efd08a",
+                    fontWeight: 800,
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M21 12a9 9 0 1 1-9-9v9Z" />
+                    <path d="M12 3a9 9 0 0 1 9 9h-9Z" />
+                  </svg>
+                  Répartition
+                </button>
+              </div>
+
+              {showInvestedChart && (
                 <div
-                  className="ld-summary-chart-grid"
+                  style={{
+                    width: "100%",
+                    marginTop: 28,
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    className="ld-summary-chart-grid"
                   style={{
                     display: "grid",
                     gridTemplateColumns: `repeat(${Math.min(
@@ -3613,8 +4362,9 @@ export default function App() {
                         </div>
                       );
                     })}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             <div
@@ -3720,15 +4470,75 @@ export default function App() {
                 </button>
               </div>
 
-                            <div
+              <div
                 style={{
                   width: "100%",
-                  marginTop: 28,
-                  overflow: "hidden",
+                  display: "flex",
+                  justifyContent: "center",
+                  marginTop: 10,
                 }}
               >
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowCurrentChart(
+                      (current) => !current
+                    )
+                  }
+                  aria-label={
+                    showCurrentChart
+                      ? "Masquer la répartition de la valeur actuelle"
+                      : "Afficher la répartition de la valeur actuelle"
+                  }
+                  title={
+                    showCurrentChart
+                      ? "Masquer la répartition"
+                      : "Afficher la répartition"
+                  }
+                  style={{
+                    minHeight: 38,
+                    padding: "8px 18px",
+                    border:
+                      "1px solid rgba(74,222,128,.38)",
+                    borderRadius: 10,
+                    background:
+                      "rgba(34,214,111,.08)",
+                    color: "#4ade80",
+                    fontWeight: 800,
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M21 12a9 9 0 1 1-9-9v9Z" />
+                    <path d="M12 3a9 9 0 0 1 9 9h-9Z" />
+                  </svg>
+                  Répartition
+                </button>
+              </div>
+
+              {showCurrentChart && (
                 <div
-                  className="ld-summary-chart-grid"
+                  style={{
+                    width: "100%",
+                    marginTop: 28,
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    className="ld-summary-chart-grid"
                   style={{
                     display: "grid",
                     gridTemplateColumns: `repeat(${Math.min(
@@ -3906,8 +4716,9 @@ export default function App() {
                         </div>
                       );
                     })}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
                              <div
@@ -4194,10 +5005,388 @@ export default function App() {
                   Historique
                 </button>
               </div>
-            </div>     
+            </div>
+
+            <div
+              style={{
+                ...styles.summaryCard,
+                gridColumn: "1 / -1",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                }}
+              >
+                <span
+                  style={styles.summaryLabel}
+                >
+                  USDC disponibles
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowUsdcAmounts(
+                      (current) => !current
+                    )
+                  }
+                  aria-label={
+                    showUsdcAmounts
+                      ? "Masquer les USDC disponibles"
+                      : "Afficher les USDC disponibles"
+                  }
+                  title={
+                    showUsdcAmounts
+                      ? "Masquer les USDC disponibles"
+                      : "Afficher les USDC disponibles"
+                  }
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    color: "#4ade80",
+                    padding: 0,
+                    display: "grid",
+                    placeItems: "center",
+                    cursor: "pointer",
+                    lineHeight: 1,
+                  }}
+                >
+                  {showUsdcAmounts ? (
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M3 3l18 18" />
+                      <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
+                      <path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c5 0 9 4 10 8a11.8 11.8 0 0 1-2.2 4.1" />
+                      <path d="M6.6 6.6A11.5 11.5 0 0 0 2 12c1 4 5 8 10 8a10.7 10.7 0 0 0 5.4-1.4" />
+                    </svg>
+                  ) : (
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+                      <circle
+                        cx="12"
+                        cy="12"
+                        r="3"
+                      />
+                    </svg>
+                  )}
+                </button>
+              </div>
+
+              <strong
+                style={{
+                  ...styles.summaryValue,
+                  color: "#4ade80",
+                  textAlign: "center",
+                }}
+              >
+                {showUsdcAmounts
+                  ? `${formatUSD(availableUsdcTotal)} USDC`
+                  : "••••••"}
+              </strong>
+
+              <span
+                style={{
+                  ...styles.summarySecondary,
+                  textAlign: "center",
+                }}
+              >
+                {showUsdcAmounts
+                  ? formatEUR(
+                      availableUsdcTotal * usdToEur
+                    )
+                  : "••••••"}
+              </span>
+
+              <div
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  justifyContent: "center",
+                  marginTop: 10,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowUsdcDetails(true)
+                  }
+                  style={{
+                    minHeight: 38,
+                    padding: "8px 24px",
+                    border:
+                      "1px solid rgba(213,167,75,.45)",
+                    borderRadius: 10,
+                    background:
+                      "rgba(146,102,24,.10)",
+                    color: "#efd08a",
+                    fontWeight: 800,
+                    cursor: "pointer",
+                  }}
+                >
+                  Historique
+                </button>
+              </div>
+            </div>
           </div>
         </section>
       </div>
+
+      {showUsdcDetails && (
+        <div style={styles.modalOverlay}>
+          <div
+            style={{
+              ...styles.modal,
+              maxWidth: 820,
+            }}
+          >
+            <div style={styles.modalHeader}>
+              <div>
+                <p style={styles.modalEyebrow}>
+                  Portefeuille
+                </p>
+
+                <h2 style={styles.modalTitle}>
+                  Historique USDC disponibles
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                style={styles.closeButton}
+                onClick={() =>
+                  setShowUsdcDetails(false)
+                }
+                aria-label="Fermer l’historique USDC"
+              >
+                ×
+              </button>
+            </div>
+
+            {usdcReserveDetails.length === 0 ? (
+              <div style={styles.historyEmpty}>
+                Aucun USDC disponible pour le moment.
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: "grid",
+                  gap: 18,
+                }}
+              >
+                {[
+                  { key: "hold", label: "HOLD" },
+                  { key: "trade", label: "TRADE" },
+                  { key: null, label: "NON ATTRIBUÉ" },
+                ].map((section) => {
+                  const sectionReserves =
+                    usdcReserveDetails.filter(
+                      (reserve) =>
+                        reserve.strategyMode ===
+                        section.key
+                    );
+
+                  if (sectionReserves.length === 0) {
+                    return null;
+                  }
+
+                  return (
+                    <div
+                      key={
+                        section.key || "unassigned"
+                      }
+                      style={{
+                        padding: 14,
+                        border:
+                          "1px solid rgba(76,89,81,.54)",
+                        borderRadius: 14,
+                        background:
+                          "rgba(3,15,11,.72)",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          gap: 12,
+                          marginBottom: 12,
+                        }}
+                      >
+                        <strong
+                          style={{
+                            color: "#efd08a",
+                            fontSize: 13,
+                            letterSpacing: 0.7,
+                          }}
+                        >
+                          {section.label}
+                        </strong>
+
+                        <strong
+                          style={{
+                            color: "#4ade80",
+                            fontSize: 14,
+                          }}
+                        >
+                          {formatUSD(
+                            sectionReserves.reduce(
+                              (total, reserve) =>
+                                total + reserve.availableUsdc,
+                              0
+                            )
+                          )} USDC
+                        </strong>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "grid",
+                          gap: 10,
+                        }}
+                      >
+                        {sectionReserves.map(
+                          (reserve) => (
+                            <div
+                              key={String(
+                                reserve.portfolioId
+                              )}
+                              style={{
+                                padding: 12,
+                                border:
+                                  "1px solid rgba(76,89,81,.38)",
+                                borderRadius: 12,
+                                background:
+                                  "rgba(0,0,0,.16)",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent:
+                                    "space-between",
+                                  alignItems: "center",
+                                  gap: 12,
+                                }}
+                              >
+                                <strong
+                                  style={{
+                                    color: "#e6ebe7",
+                                    overflowWrap:
+                                      "anywhere",
+                                  }}
+                                >
+                                  {String(
+                                    reserve.crypto || "—"
+                                  ).toUpperCase()}
+                                </strong>
+
+                                <strong
+                                  style={{
+                                    color: "#4ade80",
+                                  }}
+                                >
+                                  {formatUSD(
+                                    reserve.availableUsdc
+                                  )} USDC
+                                </strong>
+                              </div>
+
+                              {reserve.sales.length > 0 && (
+                                <div
+                                  style={{
+                                    display: "grid",
+                                    gap: 6,
+                                    marginTop: 10,
+                                  }}
+                                >
+                                  {reserve.sales.map(
+                                    (sale) => (
+                                      <div
+                                        key={sale.id}
+                                        style={{
+                                          display: "grid",
+                                          gridTemplateColumns:
+                                            "1fr auto",
+                                          gap: 12,
+                                          color: "#9aa69f",
+                                          fontSize: 12,
+                                        }}
+                                      >
+                                        <span>
+                                          {sale.created_at
+                                            ? new Intl.DateTimeFormat(
+                                                "fr-FR",
+                                                {
+                                                  day: "2-digit",
+                                                  month: "2-digit",
+                                                  year: "numeric",
+                                                }
+                                              ).format(
+                                                new Date(
+                                                  sale.created_at
+                                                )
+                                              )
+                                            : "—"}
+                                          {" · "}
+                                          {formatNumber(
+                                            sale.quantity
+                                          )}
+                                        </span>
+
+                                        <strong
+                                          style={{
+                                            color: "#dce4de",
+                                          }}
+                                        >
+                                          +{formatUSD(
+                                            Number(
+                                              sale.quantity || 0
+                                            ) *
+                                              Number(
+                                                sale.unit_price || 0
+                                              )
+                                          )}
+                                        </strong>
+                                      </div>
+                                    )
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {showRealizedDetails && (
         <div
@@ -5890,7 +7079,193 @@ const styles = {
     objectFit: "cover",
     display: "block",
   },
+  headerActions: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 14,
+    flexShrink: 0,
+  },
 
+  alertCenter: {
+    position: "relative",
+    zIndex: 20,
+  },
+
+  alertButton: {
+    position: "relative",
+    width: 48,
+    height: 48,
+    display: "grid",
+    placeItems: "center",
+    padding: 0,
+    border:
+      "1px solid rgba(213,167,75,.42)",
+    borderRadius: "50%",
+    background:
+      "linear-gradient(145deg, rgba(15,48,34,.96), rgba(3,15,11,.98))",
+    color: "#f4d98f",
+    cursor: "pointer",
+    boxShadow:
+      "0 12px 30px rgba(0,0,0,.28)",
+  },
+
+  alertBell: {
+    fontSize: 21,
+    lineHeight: 1,
+  },
+
+  alertBadge: {
+    position: "absolute",
+    top: -6,
+    right: -6,
+    minWidth: 23,
+    height: 23,
+    display: "grid",
+    placeItems: "center",
+    padding: "0 5px",
+    border:
+      "2px solid #04100d",
+    borderRadius: 999,
+    background: "#ef4444",
+    color: "#ffffff",
+    fontSize: 11,
+    fontWeight: 950,
+    lineHeight: 1,
+    boxShadow:
+      "0 0 12px rgba(239,68,68,.38)",
+  },
+
+  alertPanel: {
+    position: "absolute",
+    top: 58,
+    right: 0,
+    width:
+      "min(370px, calc(100vw - 36px))",
+    maxHeight: 430,
+    overflowY: "auto",
+    padding: 14,
+    border:
+      "1px solid rgba(213,167,75,.42)",
+    borderRadius: 16,
+    background: "#04100d",
+    boxShadow:
+      "0 24px 70px rgba(0,0,0,.72)",
+  },
+
+  alertPanelHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 12,
+    paddingBottom: 10,
+    borderBottom:
+      "1px solid rgba(82,99,89,.45)",
+  },
+
+  alertPanelTitle: {
+    display: "block",
+    color: "#efd08a",
+    fontSize: 17,
+  },
+
+  alertPanelCount: {
+    display: "block",
+    marginTop: 3,
+    color: "#89938c",
+    fontSize: 11,
+    fontWeight: 700,
+  },
+
+  alertList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 9,
+  },
+
+  alertItem: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+    padding: 11,
+    border:
+      "1px solid rgba(76,89,81,.55)",
+    borderRadius: 11,
+    background:
+      "rgba(3,20,14,.92)",
+  },
+
+  alertItemContent: {
+    minWidth: 0,
+    flex: 1,
+  },
+
+  alertItemTop: {
+    display: "flex",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 7,
+  },
+
+  alertItemTitle: {
+    fontSize: 14,
+    fontWeight: 900,
+  },
+
+  alertType: {
+    padding: "3px 6px",
+    borderRadius: 999,
+    background:
+      "rgba(255,255,255,.06)",
+    color: "#9ca69f",
+    fontSize: 9,
+    fontWeight: 900,
+    letterSpacing: 0.5,
+  },
+
+  alertMessage: {
+    display: "block",
+    marginTop: 5,
+    color: "#d8ded9",
+    fontSize: 12,
+    fontWeight: 700,
+    lineHeight: 1.4,
+  },
+
+  alertPrices: {
+    display: "block",
+    marginTop: 5,
+    color: "#88948c",
+    fontSize: 11,
+    lineHeight: 1.4,
+  },
+
+  alertDismissButton: {
+    width: 30,
+    height: 30,
+    flexShrink: 0,
+    display: "grid",
+    placeItems: "center",
+    padding: 0,
+    border:
+      "1px solid rgba(239,68,68,.38)",
+    borderRadius: 8,
+    background:
+      "rgba(239,68,68,.08)",
+    color: "#fda4af",
+    fontSize: 20,
+    lineHeight: 1,
+    cursor: "pointer",
+  },
+
+  alertEmpty: {
+    padding: "20px 10px",
+    color: "#89938c",
+    fontSize: 13,
+    textAlign: "center",
+  },
   liveBadge: {
     display: "none",
   },
