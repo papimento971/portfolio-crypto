@@ -2529,23 +2529,14 @@ export default function App() {
           style={styles.header}
           className="ld-header"
         >
-          <div style={styles.headerCopy}>
-            <p style={styles.eyebrow}>
-              Portfolio crypto
-            </p>
-
-            <h1 style={styles.title}>
-              Live Dashboard
-            </h1>
-
-            <p style={styles.subtitle}>
-              Suivi automatique des prix et
-              de tes performances
+          <div style={styles.headerCopy} className="ld-header-copy">
+            <p className="ld-header-tagline">
+              Gestionnaire personnel de portefeuille
             </p>
           </div>
 
-                <div style={styles.headerActions}>
-            <div style={styles.alertCenter}>
+                <div style={styles.headerActions} className="ld-header-actions">
+            <div style={styles.alertCenter} className="ld-alert-center">
               <button
                 type="button"
                 style={styles.alertButton}
@@ -2690,7 +2681,7 @@ export default function App() {
               )}
             </div>
 
-            <div style={styles.logoFrame}>
+            <div style={styles.logoFrame} className="ld-logo-frame">
               <img
                 src={ldLogo}
                 alt="Logo Live Dashboard"
@@ -4722,7 +4713,11 @@ export default function App() {
             </div>
 
                              <div
-              style={styles.summaryCard}
+              className="ld-summary-profit-card"
+              style={{
+                ...styles.summaryCard,
+                gridColumn: "1 / -1",
+              }}
             >
               <div
                 style={{
@@ -4848,6 +4843,7 @@ export default function App() {
             </div>
 
             <div
+              className="ld-summary-realized-card"
               style={styles.summaryCard}
             >
               <div
@@ -5008,10 +5004,8 @@ export default function App() {
             </div>
 
             <div
-              style={{
-                ...styles.summaryCard,
-                gridColumn: "1 / -1",
-              }}
+              className="ld-summary-usdc-card"
+              style={styles.summaryCard}
             >
               <div
                 style={{
@@ -6807,13 +6801,51 @@ const responsiveCss = `
   button:hover { filter: brightness(1.08); }
   button:active { transform: translateY(1px); }
   .ld-strategy-label-mobile { display: none; }
+  .ld-header-tagline {
+    margin: 0;
+    color: #efd08a;
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: .2px;
+    line-height: 1.3;
+  }
+  .ld-summary-profit-card { grid-column: 1 / -1 !important; }
+  .ld-summary-realized-card { grid-column: auto !important; }
+  .ld-summary-usdc-card { grid-column: auto !important; }
 
 
   @media (max-width: 720px) {
     .ld-page { padding: 18px 12px 36px !important; }
-    .ld-header { align-items: center !important; gap: 14px !important; margin-bottom: 22px !important; }
-    .ld-header h1 { font-size: clamp(34px, 10vw, 48px) !important; }
-    .ld-header p:last-child { font-size: 14px !important; }
+    .ld-header {
+      align-items: stretch !important;
+      flex-direction: column !important;
+      gap: 10px !important;
+      margin-bottom: 22px !important;
+    }
+    .ld-header-actions {
+      width: 100% !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      gap: 12px !important;
+      order: 1 !important;
+    }
+    .ld-logo-frame {
+      order: 1 !important;
+    }
+    .ld-alert-center {
+      order: 2 !important;
+      margin-left: auto !important;
+    }
+    .ld-header-copy {
+      width: 100% !important;
+      order: 2 !important;
+      text-align: center !important;
+    }
+    .ld-header-tagline {
+      margin: 2px 0 0 !important;
+      font-size: 16px !important;
+    }
     .ld-performance { padding: 18px 14px !important; min-height: 138px !important; }
     .ld-add-section { padding: 18px 14px !important; }
     .ld-form-grid { grid-template-columns: 1fr !important; }
@@ -6984,10 +7016,14 @@ const responsiveCss = `
   }
 
   @media (max-width: 500px) {
-    .ld-header { align-items: flex-start !important; }
-    .ld-header > div:last-child { width: 82px !important; height: 82px !important; border-radius: 18px !important; }
-    .ld-header h1 { font-size: 36px !important; }
-    .ld-header p:first-child { font-size: 11px !important; }
+    .ld-logo-frame {
+      width: 82px !important;
+      height: 82px !important;
+      border-radius: 18px !important;
+    }
+    .ld-header-tagline {
+      font-size: 15px !important;
+    }
     .ld-crypto-card { padding: 11px !important; }
     .ld-card-action { font-size: 12px !important; padding-inline: 4px !important; }
 
