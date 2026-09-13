@@ -5809,29 +5809,16 @@ export default function App() {
               </div>
 
               <strong
-                style={{
-                  ...styles.summaryValue,
-                  color: "#4ade80",
-                  textAlign: "center",
-                }}
-              >
-                {showUsdcAmounts
-                  ? `${formatUSD(availableUsdcTotal)} USDC`
-                  : "••••••"}
-              </strong>
-
-              <span
-                style={{
-                  ...styles.summarySecondary,
-                  textAlign: "center",
-                }}
-              >
-                {showUsdcAmounts
-                  ? formatEUR(
-                      availableUsdcTotal * usdToEur
-                    )
-                  : "••••••"}
-              </span>
+  style={{
+    ...styles.summaryValue,
+    color: "#4ade80",
+    textAlign: "center",
+  }}
+>
+  {showUsdcAmounts
+    ? `${formatNumber(availableUsdcTotal)} USDC`
+    : "••••••"}
+</strong>
 
               <div
                 style={{
