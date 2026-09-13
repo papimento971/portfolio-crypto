@@ -6821,13 +6821,12 @@ export default function App() {
                       </div>
                     </div>
                   ))}
-                </div>
-              </div>
+                </div>           
 
               <div
                 style={{
                   display: "flex",
-                  justifyContent: "flex-end",
+                 justifyContent: "flex-end",
                   gap: 10,
                   marginTop: 18,
                 }}
