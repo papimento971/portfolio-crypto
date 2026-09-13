@@ -6589,47 +6589,39 @@ export default function App() {
         strategyModes[
           String(strategyEditorAsset.dbId)
         ] === "trade" && (
-          <div
-            style={styles.modalOverlay}
-          >
-            <div style={styles.modal}>
-              <div
-                style={styles.modalHeader}
-              >
-                <div
-                  style={styles.tokenIdentity}
-                >
+          <div style={styles.modalOverlay}>
+            <div
+              style={styles.modal}
+              className="ld-trader-modal"
+            >
+              <div style={styles.modalHeader}>
+                <div style={styles.tokenIdentity}>
                   {strategyEditorAsset.image ? (
                     <img
-                      src={
-                        strategyEditorAsset.image
-                      }
+                      src={strategyEditorAsset.image}
                       alt=""
                       style={styles.tokenLogo}
                     />
                   ) : (
-                    <div
-                      style={
-                        styles.logoPlaceholder
-                      }
-                    >
-                      {strategyEditorAsset.name
-                        ?.slice(0, 1)
+                    <div style={styles.logoPlaceholder}>
+                      {(
+                        strategyEditorAsset.symbol ||
+                        strategyEditorAsset.name ||
+                        strategyEditorAsset.id ||
+                        "?"
+                      )
+                        .slice(0, 1)
                         .toUpperCase()}
                     </div>
                   )}
 
                   <div>
-                    <h3
-                      style={styles.cardTitle}
-                    >
-                      {strategyEditorAsset.name}
-                    </h3>
-
-                    <span
-                      style={styles.cardSymbol}
-                    >
+                    <h3 style={styles.cardTitle}>
                       {strategyEditorAsset.symbol ||
+                        strategyEditorAsset.id}
+                    </h3>
+                    <span style={styles.cardSymbol}>
+                      {strategyEditorAsset.name ||
                         strategyEditorAsset.id}
                     </span>
                   </div>
@@ -6639,9 +6631,7 @@ export default function App() {
                   type="button"
                   style={styles.closeButton}
                   onClick={() =>
-                    setStrategyEditorAsset(
-                      null
-                    )
+                    setStrategyEditorAsset(null)
                   }
                 >
                   ×
@@ -6649,40 +6639,59 @@ export default function App() {
               </div>
 
               <div
+                className="ld-trader-title-row"
                 style={{
                   display: "flex",
-                  alignItems: "center",
-                  justifyContent:
-                    "space-between",
+                  alignItems: "flex-start",
+                  justifyContent: "space-between",
                   gap: 16,
-                  marginBottom: 20,
+                  marginBottom: 14,
                 }}
               >
                 <h2 style={styles.modalTitle}>
                   Mode Trader
                 </h2>
 
-                <strong
+                <div
                   style={{
-                    ...styles.currentPrice,
-                    fontSize: 18,
+                    textAlign: "right",
+                    minWidth: 0,
                   }}
                 >
-                  {formatUSD(
-                    strategyEditorAsset.currentPrice,
-                    true
-                  )}
-                </strong>
+                  <strong
+                    style={{
+                      ...styles.currentPrice,
+                      fontSize: 18,
+                      display: "block",
+                    }}
+                  >
+                    {formatUSD(
+                      strategyEditorAsset.currentPrice,
+                      true
+                    )}
+                  </strong>
+                  <span
+                    style={{
+                      display: "block",
+                      marginTop: 2,
+                      color: "#8f9f97",
+                      fontSize: 10,
+                      fontWeight: 700,
+                    }}
+                  >
+                    Prix actuel
+                  </span>
+                </div>
               </div>
 
               <div
+                className="ld-trader-levels-panel"
                 style={{
-                  padding: 16,
+                  padding: 12,
                   border:
                     "1px solid rgba(46,126,72,.55)",
                   borderRadius: 12,
-                  background:
-                    "rgba(2,18,11,.72)",
+                  background: "rgba(2,18,11,.72)",
                 }}
               >
                 <h3
@@ -6692,148 +6701,358 @@ export default function App() {
                     fontSize: 15,
                   }}
                 >
-                  Niveaux de sortie
+                  Niveaux de sorties
                 </h3>
 
                 <div
                   style={{
-                    marginBottom: 14,
-                    padding: "9px 11px",
-                    borderRadius: 9,
-                    border:
-                      "1px solid rgba(94,219,54,.28)",
-                    background:
-                      "rgba(49,145,54,.08)",
-                    color: "#9eb8a6",
-                    fontSize: 11,
-                    fontWeight: 700,
+                    display: "grid",
+                    gap: 8,
                   }}
                 >
-                  Chaque niveau complété crée une alerte.
-                </div>
+                  {[0, 1, 2, 3].map((index) => {
+                    const percent = Number(
+                      String(
+                        traderLevelsDraft[index]
+                          ?.percent ?? ""
+                      )
+                        .trim()
+                        .replace(",", ".")
+                    );
+                    const quantity = Number(
+                      strategyEditorAsset?.quantity || 0
+                    );
+                    const levelQuantity =
+                      Number.isFinite(percent) &&
+                      percent > 0 &&
+                      percent <= 100 &&
+                      Number.isFinite(quantity) &&
+                      quantity > 0
+                        ? (quantity * percent) / 100
+                        : 0;
 
-                <div
-  key={`trader-edit-${index}`}
-  className="ld-trader-level-row"
-  style={{
-    display: "grid",
-    gridTemplateColumns:
-      "minmax(0, 1fr) minmax(0, 1fr) minmax(130px, .85fr)",
-    gap: 10,
-  }}
->
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={
-                          traderLevelsDraft[index]
-                            ?.price ?? ""
-                        }
-                        onChange={(event) =>
-                          setTraderLevelsDraft(
-                            (previousDraft) =>
-                              previousDraft.map(
-                                (level, levelIndex) =>
-                                  levelIndex === index
-                                    ? {
-                                        ...level,
-                                        price:
-                                          event.target
-                                            .value,
-                                      }
-                                    : level
-                              )
-                          )
-                        }
-                        placeholder="Prix de sortie ($US)"
-                        style={styles.input}
-                      />
-
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={
-                          traderLevelsDraft[index]
-                            ?.percent ?? ""
-                        }
-                        onChange={(event) =>
-                          setTraderLevelsDraft(
-                            (previousDraft) =>
-                              previousDraft.map(
-                                (level, levelIndex) =>
-                                  levelIndex === index
-                                    ? {
-                                        ...level,
-                                        percent:
-                                          event.target
-                                            .value,
-                                      }
-                                    : level
-                              )
-                          )
-                        }
-                        placeholder="Pourcentage à vendre (%)"
-                        style={styles.input}
-                      />
-
+                    return (
                       <div
-                        title="Quantité calculée automatiquement"
+                        key={`trader-edit-${index}`}
+                        className="ld-trader-level-row"
                         style={{
-                          ...styles.input,
-                          display: "flex",
-                          alignItems: "center",
-                          minWidth: 0,
-                          color: "#d8e6dc",
-                          background: "rgba(4,18,13,.78)",
-                          cursor: "default",
+                          display: "grid",
+                          gridTemplateColumns:
+                            "48px minmax(0, 1fr) minmax(0, .85fr) minmax(105px, .9fr)",
+                          alignItems: "end",
+                          gap: 8,
+                          padding: "10px 9px",
+                          border:
+                            "1px solid rgba(46,126,72,.42)",
+                          borderRadius: 10,
+                          background: "rgba(2,14,10,.58)",
                         }}
                       >
-                        {(() => {
-                          const percent = Number(
-                            String(
+                        <div
+                          className="ld-trader-level-index"
+                          style={{
+                            alignSelf: "center",
+                            color: "#e7ece9",
+                            fontSize: 11,
+                            fontWeight: 800,
+                            lineHeight: 1.1,
+                          }}
+                        >
+                          Niveau
+                          <br />
+                          {index + 1}
+                        </div>
+
+                        <label
+                          className="ld-trader-field"
+                          style={{
+                            display: "grid",
+                            gap: 5,
+                            minWidth: 0,
+                          }}
+                        >
+                          <span
+                            className="ld-trader-field-label"
+                            style={{
+                              color: "#9fb0a7",
+                              fontSize: 10,
+                              fontWeight: 700,
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            Prix de sortie ($)
+                          </span>
+                          <input
+                            className="ld-trader-level-input"
+                            type="text"
+                            inputMode="decimal"
+                            value={
                               traderLevelsDraft[index]
-                                ?.percent ?? ""
-                            )
-                              .trim()
-                              .replace(",", ".")
-                          );
+                                ?.price ?? ""
+                            }
+                            onChange={(event) =>
+                              setTraderLevelsDraft(
+                                (previousDraft) =>
+                                  previousDraft.map(
+                                    (level, levelIndex) =>
+                                      levelIndex === index
+                                        ? {
+                                            ...level,
+                                            price:
+                                              event.target
+                                                .value,
+                                          }
+                                        : level
+                                  )
+                              )
+                            }
+                            placeholder="0,0000"
+                            style={styles.input}
+                          />
+                        </label>
 
-                          const quantity = Number(
-                            strategyEditorAsset?.quantity || 0
-                          );
+                        <label
+                          className="ld-trader-field"
+                          style={{
+                            display: "grid",
+                            gap: 5,
+                            minWidth: 0,
+                          }}
+                        >
+                          <span
+                            className="ld-trader-field-label"
+                            style={{
+                              color: "#9fb0a7",
+                              fontSize: 10,
+                              fontWeight: 700,
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            % à vendre
+                          </span>
+                          <div
+                            style={{
+                              position: "relative",
+                              minWidth: 0,
+                            }}
+                          >
+                            <input
+                              className="ld-trader-level-input ld-trader-percent-input"
+                              type="text"
+                              inputMode="decimal"
+                              value={
+                                traderLevelsDraft[index]
+                                  ?.percent ?? ""
+                              }
+                              onChange={(event) =>
+                                setTraderLevelsDraft(
+                                  (previousDraft) =>
+                                    previousDraft.map(
+                                      (level, levelIndex) =>
+                                        levelIndex === index
+                                          ? {
+                                              ...level,
+                                              percent:
+                                                event
+                                                  .target
+                                                  .value,
+                                            }
+                                          : level
+                                    )
+                                )
+                              }
+                              placeholder="0"
+                              style={{
+                                ...styles.input,
+                                paddingRight: 28,
+                              }}
+                            />
+                            <span
+                              style={{
+                                position: "absolute",
+                                right: 10,
+                                top: "50%",
+                                transform:
+                                  "translateY(-50%)",
+                                color: "#dce7e0",
+                                fontSize: 12,
+                                fontWeight: 800,
+                                pointerEvents: "none",
+                              }}
+                            >
+                              %
+                            </span>
+                          </div>
+                        </label>
 
-                          if (
-                            !Number.isFinite(percent) ||
-                            percent <= 0 ||
-                            percent > 100 ||
-                            !Number.isFinite(quantity) ||
-                            quantity <= 0
-                          ) {
-                            return "Quantité à vendre";
-                          }
+                        <div
+                          className="ld-trader-quantity"
+                          style={{
+                            display: "grid",
+                            gap: 5,
+                            minWidth: 0,
+                            alignSelf: "stretch",
+                            alignContent: "end",
+                          }}
+                        >
+                          <span
+                            className="ld-trader-field-label"
+                            style={{
+                              color: "#9fb0a7",
+                              fontSize: 10,
+                              fontWeight: 700,
+                              whiteSpace: "nowrap",
+                              textAlign: "right",
+                            }}
+                          >
+                            Quantité ({
+                              strategyEditorAsset.symbol ||
+                              strategyEditorAsset.id
+                            })
+                          </span>
+                          <div
+                            style={{
+                              minHeight: 42,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "flex-end",
+                              color: "#eef6f1",
+                              fontSize: 13,
+                              fontWeight: 800,
+                              textAlign: "right",
+                              overflowWrap: "anywhere",
+                            }}
+                          >
+                            {levelQuantity > 0
+                              ? formatNumber(
+                                  levelQuantity,
+                                  2
+                                )
+                              : "—"}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
 
-                          return `${formatNumber(
-                            (quantity * percent) / 100
-                          )} ${
-                            strategyEditorAsset?.symbol || ""
-                          }`;
-                        })()}
+                {(() => {
+                  const quantity = Number(
+                    strategyEditorAsset?.quantity || 0
+                  );
+                  const totalPercent =
+                    traderLevelsDraft.reduce(
+                      (total, level) => {
+                        const percent = Number(
+                          String(level?.percent ?? "")
+                            .trim()
+                            .replace(",", ".")
+                        );
+                        return (
+                          Number.isFinite(percent) &&
+                          percent > 0
+                            ? total + percent
+                            : total
+                        );
+                      },
+                      0
+                    );
+                  const totalQuantity =
+                    Number.isFinite(quantity) &&
+                    quantity > 0
+                      ? (quantity * totalPercent) /
+                        100
+                      : 0;
+
+                  return (
+                    <div
+                      className="ld-trader-summary"
+                      style={{
+                        marginTop: 9,
+                        padding: "10px 11px",
+                        border:
+                          "1px solid rgba(46,126,72,.42)",
+                        borderRadius: 10,
+                        background: "rgba(2,14,10,.58)",
+                        display: "flex",
+                        alignItems: "flex-end",
+                        justifyContent: "space-between",
+                        gap: 12,
+                      }}
+                    >
+                      <div>
+                        <div
+                          style={{
+                            color: "#9fb0a7",
+                            fontSize: 10,
+                          }}
+                        >
+                          Quantité totale à vendre
+                        </div>
+                        <strong
+                          style={{
+                            display: "block",
+                            marginTop: 3,
+                            color: "#eef6f1",
+                            fontSize: 14,
+                          }}
+                        >
+                          {formatNumber(
+                            totalQuantity,
+                            2
+                          )}{" "}
+                          {strategyEditorAsset.symbol ||
+                            strategyEditorAsset.id}
+                        </strong>
+                      </div>
+
+                      <div style={{ textAlign: "right" }}>
+                        <div
+                          style={{
+                            color: "#9fb0a7",
+                            fontSize: 10,
+                          }}
+                        >
+                          Total
+                        </div>
+                        <strong
+                          style={{
+                            display: "block",
+                            marginTop: 3,
+                            color:
+                              totalPercent === 100
+                                ? "#4ade80"
+                                : "#efd08a",
+                            fontSize: 16,
+                          }}
+                        >
+                          {formatNumber(
+                            totalPercent,
+                            2
+                          )}{" "}
+                          %
+                        </strong>
                       </div>
                     </div>
-                  ))}
-                </div>           
+                  );
+                })()}
+              </div>
 
               <div
+                className="ld-trader-actions"
                 style={{
                   display: "flex",
-                 justifyContent: "flex-end",
+                  justifyContent: "flex-end",
                   gap: 10,
-                  marginTop: 18,
+                  marginTop: 14,
                 }}
               >
                 <button
                   type="button"
-                  style={styles.secondaryButton}
+                  style={{
+                    ...styles.secondaryButton,
+                    flex: 1,
+                  }}
                   onClick={cancelTraderLevels}
                 >
                   Annuler
@@ -6841,7 +7060,10 @@ export default function App() {
 
                 <button
                   type="button"
-                  style={styles.primaryButton}
+                  style={{
+                    ...styles.primaryButton,
+                    flex: 1,
+                  }}
                   onClick={saveTraderLevels}
                 >
                   Enregistrer
@@ -7943,6 +8165,59 @@ const responsiveCss = `
     .ld-summary-grid strong {
       font-size: 15px !important;
       white-space: nowrap !important;
+    }
+
+    .ld-trader-modal {
+      width: calc(100vw - 20px) !important;
+      max-width: calc(100vw - 20px) !important;
+      box-sizing: border-box !important;
+      padding: 14px !important;
+      border-radius: 16px !important;
+    }
+
+    .ld-trader-title-row {
+      gap: 10px !important;
+      margin-bottom: 12px !important;
+    }
+
+    .ld-trader-levels-panel {
+      padding: 9px !important;
+    }
+
+    .ld-trader-level-row {
+      grid-template-columns: 38px minmax(0, 1fr) minmax(68px, .8fr) minmax(82px, .9fr) !important;
+      gap: 6px !important;
+      padding: 9px 7px !important;
+    }
+
+    .ld-trader-level-index {
+      font-size: 10px !important;
+    }
+
+    .ld-trader-field-label {
+      font-size: 9px !important;
+    }
+
+    .ld-trader-level-input {
+      min-height: 38px !important;
+      padding: 9px 8px !important;
+      font-size: 12px !important;
+    }
+
+    .ld-trader-percent-input {
+      padding-right: 24px !important;
+    }
+
+    .ld-trader-quantity {
+      font-size: 12px !important;
+    }
+
+    .ld-trader-summary {
+      padding: 9px !important;
+    }
+
+    .ld-trader-actions {
+      gap: 8px !important;
     }
   }
 `;
