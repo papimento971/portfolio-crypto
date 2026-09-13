@@ -20,15 +20,23 @@ export default function App() {
   const [isAdding, setIsAdding] = useState(false);
   const [isTestPosition, setIsTestPosition] = useState(false);
 
-  const [editingAsset, setEditingAsset] = useState(null);
+ const [editingAsset, setEditingAsset] = useState(null);
   const [transactionType, setTransactionType] = useState("purchase");
+
   const [transactionForm, setTransactionForm] = useState({
     quantity: "",
     unitPrice: "",
   });
 
-  const [isSavingTransaction, setIsSavingTransaction] = useState(false);
-  const [transactionMessage, setTransactionMessage] = useState("");
+  const [purchaseFunding, setPurchaseFunding] = useState({
+    selectedReserveIds: [],
+  });
+
+  const [isSavingTransaction, setIsSavingTransaction] =
+    useState(false);
+
+  const [transactionMessage, setTransactionMessage] =
+    useState("");
 
   const [historyAsset, setHistoryAsset] = useState(null);
   const [historyItems, setHistoryItems] = useState([]);
@@ -287,7 +295,7 @@ export default function App() {
     });
   }
 
-  useEffect(() => {
+     useEffect(() => {
     try {
       localStorage.setItem(
         "portfolio-active-alerts",
@@ -308,9 +316,10 @@ export default function App() {
   }, [activeAlerts.length]);
 
   useEffect(() => {
-        if (assets.length === 0) {
+    if (assets.length === 0) {
       return;
     }
+
     const validAlertKeys = new Set();
 
     assets.forEach((asset) => {
@@ -381,7 +390,7 @@ export default function App() {
             ]?.isReached
           );
 
-                const isAcknowledged =
+        const isAcknowledged =
           Boolean(
             acknowledgedAlerts.current[
               alertKey
@@ -429,15 +438,14 @@ export default function App() {
       });
     });
 
-   
-
     saveAlertLifecycle();
   }, [assets, strategyModes, strategyLevels]);
 
   useEffect(() => {
-        if (assets.length === 0) {
+    if (assets.length === 0) {
       return;
     }
+
     const validAlertKeys = new Set();
 
     assets.forEach((asset) => {
@@ -499,7 +507,7 @@ export default function App() {
             ]?.isReached
           );
 
-                const isAcknowledged =
+        const isAcknowledged =
           Boolean(
             acknowledgedAlerts.current[
               alertKey
@@ -547,7 +555,6 @@ export default function App() {
         };
       });
     });
-
 
     saveAlertLifecycle();
   }, [assets, strategyModes, traderLevels]);
@@ -613,7 +620,7 @@ export default function App() {
         return nextLevels;
       });
 
-          Object.keys(
+      Object.keys(
         strategyAlertLifecycle.current
       ).forEach((alertKey) => {
         if (
@@ -756,7 +763,7 @@ export default function App() {
         return nextLevels;
       });
 
-           Object.keys(
+      Object.keys(
         strategyAlertLifecycle.current
       ).forEach((alertKey) => {
         if (
@@ -939,10 +946,90 @@ export default function App() {
     }
   }
 
-  useEffect(() => {
+  const [investedCapitalUSD, setInvestedCapitalUSD] =
+    useState(0);
+
+     async function loadInvestedCapital() {
+    const {
+      data: capitalSettings,
+      error: capitalSettingsError,
+    } = await supabase
+      .from("portfolio_capital_settings")
+      .select(
+        "historical_invested_usd, tracking_started_at"
+      )
+      .eq("id", 1)
+      .single();
+
+    if (capitalSettingsError) {
+      console.error(
+        "Erreur chargement capital historique :",
+        capitalSettingsError
+      );
+      return;
+    }
+
+    const historicalInvestedUSD = Number(
+      capitalSettings?.historical_invested_usd || 0
+    );
+
+    const trackingStartedAt =
+      capitalSettings?.tracking_started_at || null;
+
+    if (!trackingStartedAt) {
+      setInvestedCapitalUSD(
+        historicalInvestedUSD
+      );
+      return;
+    }
+
+    const {
+      data: externalFundingTransactions,
+      error: externalFundingError,
+    } = await supabase
+      .from("portfolio_transactions")
+      .select("external_funding_usd")
+      .eq("type", "purchase")
+      .eq("is_test", false)
+      .gte(
+        "created_at",
+        trackingStartedAt
+      );
+
+    if (externalFundingError) {
+      console.error(
+        "Erreur chargement fonds externes :",
+        externalFundingError
+      );
+
+      setInvestedCapitalUSD(
+        historicalInvestedUSD
+      );
+      return;
+    }
+
+    const externalFundingUSD = (
+      externalFundingTransactions || []
+    ).reduce(
+      (total, transaction) =>
+        total +
+        Number(
+          transaction.external_funding_usd || 0
+        ),
+      0
+    );
+
+    setInvestedCapitalUSD(
+      historicalInvestedUSD +
+        externalFundingUSD
+    );
+  }
+      useEffect(() => {
     loadAssets();
     loadRealizedGains();
+    loadInvestedCapital();
   }, []);
+
 
   async function loadAssets() {
     const { data, error } = await supabase
@@ -1190,13 +1277,38 @@ export default function App() {
       )
       .order("created_at", { ascending: true });
 
-    if (reserveMovementsError) {
+        if (reserveMovementsError) {
       console.error(
         "Erreur calcul réserves USDC :",
         reserveMovementsError
       );
     } else {
       const reserveBalances = {};
+
+      function ensureReserve(
+        portfolioId,
+        crypto
+      ) {
+        const key =
+          portfolioId != null
+            ? String(portfolioId)
+            : "";
+
+        if (!key) {
+          return null;
+        }
+
+        if (!reserveBalances[key]) {
+          reserveBalances[key] = {
+            portfolioId,
+            crypto: String(crypto || ""),
+            availableUsdc: 0,
+            movements: [],
+          };
+        }
+
+        return reserveBalances[key];
+      }
 
       (reserveMovements || []).forEach(
         (movement) => {
@@ -1234,48 +1346,56 @@ export default function App() {
           }
 
           if (movement.movement_type === "sale") {
-            if (!sourcePortfolioId) {
+            const sourceReserve =
+              ensureReserve(
+                movement.source_portfolio_id,
+                sourceCrypto
+              );
+
+            if (!sourceReserve) {
               return;
             }
 
-            if (!reserveBalances[sourcePortfolioId]) {
-              reserveBalances[sourcePortfolioId] = {
-                portfolioId:
-                  movement.source_portfolio_id,
-                crypto: sourceCrypto,
-                availableUsdc: 0,
-              };
-            }
+            sourceReserve.availableUsdc +=
+              amount;
 
-            reserveBalances[
-              sourcePortfolioId
-            ].availableUsdc += amount;
+            sourceReserve.movements.push({
+              ...movement,
+              reserveDirection: "in",
+            });
 
             return;
           }
 
-          if (movement.movement_type === "reload") {
-            if (!sourcePortfolioId) {
+          if (
+            movement.movement_type ===
+            "reload"
+          ) {
+            const sourceReserve =
+              ensureReserve(
+                movement.source_portfolio_id,
+                sourceCrypto
+              );
+
+            if (!sourceReserve) {
               return;
             }
 
-            if (!reserveBalances[sourcePortfolioId]) {
-              reserveBalances[sourcePortfolioId] = {
-                portfolioId:
-                  movement.source_portfolio_id,
-                crypto: sourceCrypto,
-                availableUsdc: 0,
-              };
-            }
+            sourceReserve.availableUsdc -=
+              amount;
 
-            reserveBalances[
-              sourcePortfolioId
-            ].availableUsdc -= amount;
+            sourceReserve.movements.push({
+              ...movement,
+              reserveDirection: "out",
+            });
 
             return;
           }
 
-          if (movement.movement_type === "transfer") {
+          if (
+            movement.movement_type ===
+            "transfer"
+          ) {
             if (
               !sourcePortfolioId ||
               !destinationPortfolioId
@@ -1283,45 +1403,49 @@ export default function App() {
               return;
             }
 
-            if (!reserveBalances[sourcePortfolioId]) {
-              reserveBalances[sourcePortfolioId] = {
-                portfolioId:
-                  movement.source_portfolio_id,
-                crypto: sourceCrypto,
-                availableUsdc: 0,
-              };
-            }
+            const sourceReserve =
+              ensureReserve(
+                movement.source_portfolio_id,
+                sourceCrypto
+              );
+
+            const destinationReserve =
+              ensureReserve(
+                movement.destination_portfolio_id,
+                destinationCrypto
+              );
 
             if (
-              !reserveBalances[
-                destinationPortfolioId
-              ]
+              !sourceReserve ||
+              !destinationReserve
             ) {
-              reserveBalances[
-                destinationPortfolioId
-              ] = {
-                portfolioId:
-                  movement.destination_portfolio_id,
-                crypto: destinationCrypto,
-                availableUsdc: 0,
-              };
+              return;
             }
 
-            reserveBalances[
-              sourcePortfolioId
-            ].availableUsdc -= amount;
+            sourceReserve.availableUsdc -=
+              amount;
 
-            reserveBalances[
-              destinationPortfolioId
-            ].availableUsdc += amount;
+            sourceReserve.movements.push({
+              ...movement,
+              reserveDirection: "out",
+            });
+
+            destinationReserve.availableUsdc +=
+              amount;
+
+            destinationReserve.movements.push({
+              ...movement,
+              reserveDirection: "in",
+            });
           }
         }
       );
 
-      setAvailableUsdcByToken(
+           setAvailableUsdcByToken(
         reserveBalances
       );
     }
+
     const detailedSales = sales.map((transaction) => {
       const quantity = Number(transaction.quantity || 0);
       const salePrice = Number(transaction.unit_price || 0);
@@ -1538,7 +1662,7 @@ export default function App() {
     setIsTestPosition(false);
   }
 
-  async function insertTransaction({
+       async function insertTransaction({
     portfolioId,
     crypto,
     type,
@@ -1549,8 +1673,9 @@ export default function App() {
     quantityAfter,
     averagePriceAfter,
     isTest = false,
+    externalFundingUSD = 0,
   }) {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("portfolio_transactions")
       .insert([
         {
@@ -1564,12 +1689,20 @@ export default function App() {
           quantity_after: quantityAfter,
           average_price_after: averagePriceAfter,
           is_test: isTest,
+          external_funding_usd:
+            type === "purchase"
+              ? Number(externalFundingUSD || 0)
+              : 0,
         },
-      ]);
+      ])
+      .select("id")
+      .single();
 
     if (error) {
       throw error;
     }
+
+    return data?.id ?? null;
   }
 
   useEffect(() => {
@@ -1761,8 +1894,32 @@ export default function App() {
           })
         );
 
-        if (!isCancelled) {
-          setAssets(updatedAssets);
+                if (!isCancelled) {
+          setAssets((latestAssets) =>
+            latestAssets.map((latestAsset) => {
+              const refreshedAsset =
+                updatedAssets.find(
+                  (updatedAsset) =>
+                    updatedAsset.dbId ===
+                    latestAsset.dbId
+                );
+
+              if (!refreshedAsset) {
+                return latestAsset;
+              }
+
+              return {
+                ...latestAsset,
+                name: refreshedAsset.name,
+                symbol: refreshedAsset.symbol,
+                image: refreshedAsset.image,
+                currentPrice:
+                  refreshedAsset.currentPrice,
+                priceChange24h:
+                  refreshedAsset.priceChange24h,
+              };
+            })
+          );
         }
       } catch (error) {
         console.error("Erreur prix crypto :", error);
@@ -1782,7 +1939,7 @@ export default function App() {
     };
   }, [assets.length]);
 
-  async function addAsset() {
+    async function addAsset() {
     const quantity = Number(form.quantity);
     const buyPrice = Number(form.buyPrice);
 
@@ -1817,6 +1974,67 @@ export default function App() {
     setMessage("");
 
     try {
+      const purchaseAmount =
+        quantity * buyPrice;
+
+      let remainingAmount =
+        purchaseAmount;
+
+      const selectedReserves =
+        purchaseFunding.selectedReserveIds
+          .map(
+            (reserveId) =>
+              availableUsdcByToken[
+                String(reserveId)
+              ]
+          )
+          .filter(
+            (reserve) =>
+              reserve &&
+              Number(
+                reserve.availableUsdc || 0
+              ) > 0
+          );
+
+      const reserveAllocations = [];
+
+      selectedReserves.forEach(
+        (reserve) => {
+          if (remainingAmount <= 0) {
+            return;
+          }
+
+          const availableAmount =
+            Number(
+              reserve.availableUsdc || 0
+            );
+
+          const usedAmount = Math.min(
+            availableAmount,
+            remainingAmount
+          );
+
+          if (usedAmount <= 0) {
+            return;
+          }
+
+          reserveAllocations.push({
+            sourcePortfolioId:
+              reserve.portfolioId,
+            sourceCrypto:
+              String(
+                reserve.crypto || ""
+              ),
+            amountUsdc: usedAmount,
+          });
+
+          remainingAmount -= usedAmount;
+        }
+      );
+
+      const externalFundingUSD =
+        Math.max(0, remainingAmount);
+
       const existingAsset = assets.find(
         (asset) =>
           asset.id === selectedToken.id &&
@@ -1827,14 +2045,20 @@ export default function App() {
       if (existingAsset) {
         const quantityBefore =
           existingAsset.quantity;
+
         const averagePriceBefore =
           existingAsset.buyPrice;
+
         const oldInvestment =
-          quantityBefore * averagePriceBefore;
+          quantityBefore *
+          averagePriceBefore;
+
         const newInvestment =
           quantity * buyPrice;
+
         const quantityAfter =
           quantityBefore + quantity;
+
         const averagePriceAfter =
           (oldInvestment + newInvestment) /
           quantityAfter;
@@ -1849,59 +2073,184 @@ export default function App() {
 
         if (error) throw error;
 
-        await insertTransaction({
-          portfolioId: existingAsset.dbId,
-          crypto: selectedToken.id,
-          type: "purchase",
-          quantity,
-          unitPrice: buyPrice,
-          quantityBefore,
-          averagePriceBefore,
-          quantityAfter,
-          averagePriceAfter,
-          isTest: Boolean(existingAsset.isTest),
-        });
+        const transactionId =
+          await insertTransaction({
+            portfolioId:
+              existingAsset.dbId,
+            crypto: selectedToken.id,
+            type: "purchase",
+            quantity,
+            unitPrice: buyPrice,
+            quantityBefore,
+            averagePriceBefore,
+            quantityAfter,
+            averagePriceAfter,
+            isTest: Boolean(
+              existingAsset.isTest
+            ),
+            externalFundingUSD,
+          });
+
+        if (!transactionId) {
+          throw new Error(
+            "Identifiant de transaction introuvable."
+          );
+        }
+
+        if (
+          reserveAllocations.length > 0
+        ) {
+          const {
+            error: reserveError,
+          } = await supabase
+            .from(
+              "usdc_reserve_movements"
+            )
+            .insert(
+              reserveAllocations.map(
+                (allocation) => ({
+                  source_portfolio_id:
+                    allocation.sourcePortfolioId,
+                  source_crypto:
+                    allocation.sourceCrypto,
+                  destination_portfolio_id:
+                    null,
+                  destination_crypto: null,
+                  movement_type: "reload",
+                  amount_usdc:
+                    allocation.amountUsdc,
+                  related_transaction_id:
+                    transactionId,
+                })
+              )
+            );
+
+          if (reserveError) {
+            await supabase
+              .from(
+                "portfolio_transactions"
+              )
+              .delete()
+              .eq("id", transactionId);
+
+            await supabase
+              .from("portfolios")
+              .update({
+                quantite:
+                  quantityBefore,
+                prix_achat:
+                  averagePriceBefore,
+              })
+              .eq(
+                "id",
+                existingAsset.dbId
+              );
+
+            throw reserveError;
+          }
+        }
 
         setMessage(
           `${selectedToken.name} a été mis à jour avec le nouveau prix moyen.`
         );
       } else {
-        const { data, error } = await supabase
-          .from("portfolios")
-          .insert([
-            {
-              crypto: selectedToken.id,
-              quantite: quantity,
-              prix_achat: buyPrice,
-              is_test: isTestPosition,
-              network:
-                selectedNetworkOption?.network ||
-                null,
-              contract_address:
-                selectedNetworkOption?.contractAddress ||
-                null,
-              token_type:
-                selectedNetworkOption?.tokenType ||
-                null,
-            },
-          ])
-          .select("id")
-          .single();
+        const { data, error } =
+          await supabase
+            .from("portfolios")
+            .insert([
+              {
+                crypto:
+                  selectedToken.id,
+                quantite: quantity,
+                prix_achat: buyPrice,
+                is_test:
+                  isTestPosition,
+                network:
+                  selectedNetworkOption?.network ||
+                  null,
+                contract_address:
+                  selectedNetworkOption?.contractAddress ||
+                  null,
+                token_type:
+                  selectedNetworkOption?.tokenType ||
+                  null,
+              },
+            ])
+            .select("id")
+            .single();
 
         if (error) throw error;
 
-        await insertTransaction({
-          portfolioId: data.id,
-          crypto: selectedToken.id,
-          type: "purchase",
-          quantity,
-          unitPrice: buyPrice,
-          quantityBefore: 0,
-          averagePriceBefore: 0,
-          quantityAfter: quantity,
-          averagePriceAfter: buyPrice,
-          isTest: isTestPosition,
-        });
+        const transactionId =
+          await insertTransaction({
+            portfolioId: data.id,
+            crypto: selectedToken.id,
+            type: "purchase",
+            quantity,
+            unitPrice: buyPrice,
+            quantityBefore: 0,
+            averagePriceBefore: 0,
+            quantityAfter: quantity,
+            averagePriceAfter: buyPrice,
+            isTest: isTestPosition,
+            externalFundingUSD,
+          });
+
+        if (!transactionId) {
+          await supabase
+            .from("portfolios")
+            .delete()
+            .eq("id", data.id);
+
+          throw new Error(
+            "Identifiant de transaction introuvable."
+          );
+        }
+
+        if (
+          reserveAllocations.length > 0
+        ) {
+          const {
+            error: reserveError,
+          } = await supabase
+            .from(
+              "usdc_reserve_movements"
+            )
+            .insert(
+              reserveAllocations.map(
+                (allocation) => ({
+                  source_portfolio_id:
+                    allocation.sourcePortfolioId,
+                  source_crypto:
+                    allocation.sourceCrypto,
+                  destination_portfolio_id:
+                    null,
+                  destination_crypto: null,
+                  movement_type: "reload",
+                  amount_usdc:
+                    allocation.amountUsdc,
+                  related_transaction_id:
+                    transactionId,
+                })
+              )
+            );
+
+          if (reserveError) {
+            await supabase
+              .from(
+                "portfolio_transactions"
+              )
+              .delete()
+              .eq("id", transactionId);
+
+            await supabase
+              .from("portfolios")
+              .delete()
+              .eq("id", data.id);
+
+            throw reserveError;
+          }
+        }
 
         setMessage(
           `${selectedToken.name} a été ajouté au portefeuille.`
@@ -1909,7 +2258,13 @@ export default function App() {
       }
 
       resetForm();
+
+      setPurchaseFunding({
+        selectedReserveIds: [],
+      });
+
       await loadAssets();
+      await loadRealizedGains();
     } catch (error) {
       console.error(
         "Erreur ajout / mise à jour :",
@@ -1918,7 +2273,8 @@ export default function App() {
 
       setMessage(
         `Enregistrement impossible : ${
-          error?.message || "erreur inconnue"
+          error?.message ||
+          "erreur inconnue"
         }`
       );
     } finally {
@@ -1926,7 +2282,7 @@ export default function App() {
     }
   }
 
-  function openTransactionForm(
+   function openTransactionForm(
     asset,
     type = "purchase"
   ) {
@@ -1936,6 +2292,10 @@ export default function App() {
     setTransactionForm({
       quantity: "",
       unitPrice: "",
+    });
+
+    setPurchaseFunding({
+      selectedReserveIds: [],
     });
 
     setTransactionMessage("");
@@ -1951,11 +2311,14 @@ export default function App() {
       unitPrice: "",
     });
 
+    setPurchaseFunding({
+      selectedReserveIds: [],
+    });
+
     setTransactionMessage("");
     setIsSavingTransaction(false);
   }
-
-  async function saveTransaction() {
+   async function saveTransaction() {
     if (
       !editingAsset ||
       isSavingTransaction
@@ -2030,6 +2393,85 @@ export default function App() {
             quantity * unitPrice) /
           quantityAfter;
 
+        const purchaseAmount =
+          quantity * unitPrice;
+
+        let remainingAmount =
+          purchaseAmount;
+
+        const selectedReserves =
+          purchaseFunding.selectedReserveIds
+            .map(
+              (reserveId) =>
+                availableUsdcByToken[
+                  String(reserveId)
+                ]
+            )
+            .filter(
+              (reserve) =>
+                reserve &&
+                Number(
+                  reserve.availableUsdc || 0
+                ) > 0
+            )
+            .sort((a, b) => {
+              const aIsCurrent =
+                String(a.portfolioId) ===
+                String(portfolioId);
+
+              const bIsCurrent =
+                String(b.portfolioId) ===
+                String(portfolioId);
+
+              if (
+                aIsCurrent !== bIsCurrent
+              ) {
+                return aIsCurrent ? -1 : 1;
+              }
+
+              return 0;
+            });
+
+        const reserveAllocations = [];
+
+        selectedReserves.forEach(
+          (reserve) => {
+            if (remainingAmount <= 0) {
+              return;
+            }
+
+            const availableAmount =
+              Number(
+                reserve.availableUsdc || 0
+              );
+
+            const usedAmount = Math.min(
+              availableAmount,
+              remainingAmount
+            );
+
+            if (usedAmount <= 0) {
+              return;
+            }
+
+            reserveAllocations.push({
+              sourcePortfolioId:
+                reserve.portfolioId,
+              sourceCrypto:
+                String(
+                  reserve.crypto || ""
+                ),
+              amountUsdc: usedAmount,
+            });
+
+            remainingAmount -=
+              usedAmount;
+          }
+        );
+
+        const externalFundingUSD =
+          Math.max(0, remainingAmount);
+
         const { error } = await supabase
           .from("portfolios")
           .update({
@@ -2040,18 +2482,78 @@ export default function App() {
 
         if (error) throw error;
 
-        await insertTransaction({
-          portfolioId,
-          crypto: editingAsset.id,
-          type: "purchase",
-          quantity,
-          unitPrice,
-          quantityBefore,
-          averagePriceBefore,
-          quantityAfter,
-          averagePriceAfter,
-          isTest: Boolean(editingAsset.isTest),
-        });
+        const transactionId =
+          await insertTransaction({
+            portfolioId,
+            crypto: editingAsset.id,
+            type: "purchase",
+            quantity,
+            unitPrice,
+            quantityBefore,
+            averagePriceBefore,
+            quantityAfter,
+            averagePriceAfter,
+            isTest: Boolean(
+              editingAsset.isTest
+            ),
+            externalFundingUSD,
+          });
+
+        if (!transactionId) {
+          throw new Error(
+            "Identifiant de transaction introuvable."
+          );
+        }
+
+        if (
+          reserveAllocations.length > 0
+        ) {
+          const {
+            error: reserveError,
+          } = await supabase
+            .from(
+              "usdc_reserve_movements"
+            )
+            .insert(
+              reserveAllocations.map(
+                (allocation) => ({
+                  source_portfolio_id:
+                    allocation.sourcePortfolioId,
+                  source_crypto:
+                    allocation.sourceCrypto,
+                  destination_portfolio_id:
+                    null,
+                  destination_crypto: null,
+                  movement_type: "reload",
+                  amount_usdc:
+                    allocation.amountUsdc,
+                  related_transaction_id:
+                    transactionId,
+                })
+              )
+            );
+
+          if (reserveError) {
+            await supabase
+              .from(
+                "portfolio_transactions"
+              )
+              .delete()
+              .eq("id", transactionId);
+
+            await supabase
+              .from("portfolios")
+              .update({
+                quantite:
+                  quantityBefore,
+                prix_achat:
+                  averagePriceBefore,
+              })
+              .eq("id", portfolioId);
+
+            throw reserveError;
+          }
+        }
 
         setMessage(
           `Nouvel achat enregistré pour ${editingAsset.name}. Prix moyen recalculé.`
@@ -2066,22 +2568,24 @@ export default function App() {
             : 0;
 
         if (quantityAfter === 0) {
-          const confirmed = window.confirm(
-            `Cette vente clôture entièrement ${editingAsset.name}. La position sera retirée du portefeuille, mais son historique et ses gains réalisés seront conservés. Continuer ?`
-          );
+          const confirmed =
+            window.confirm(
+              `Cette vente clôture entièrement ${editingAsset.name}. La position sera retirée du portefeuille, mais son historique et ses gains réalisés seront conservés. Continuer ?`
+            );
 
           if (!confirmed) {
             setIsSavingTransaction(false);
             return;
           }
 
-          const { error } = await supabase
-            .from("portfolios")
-            .update({
-              quantite: 0,
-              prix_achat: 0,
-            })
-            .eq("id", portfolioId);
+          const { error } =
+            await supabase
+              .from("portfolios")
+              .update({
+                quantite: 0,
+                prix_achat: 0,
+              })
+              .eq("id", portfolioId);
 
           if (error) throw error;
 
@@ -2104,12 +2608,13 @@ export default function App() {
             `${editingAsset.name} a été entièrement vendu. La position est clôturée et son historique est conservé.`
           );
         } else {
-          const { error } = await supabase
-            .from("portfolios")
-            .update({
-              quantite: quantityAfter,
-            })
-            .eq("id", portfolioId);
+          const { error } =
+            await supabase
+              .from("portfolios")
+              .update({
+                quantite: quantityAfter,
+              })
+              .eq("id", portfolioId);
 
           if (error) throw error;
 
@@ -2146,13 +2651,15 @@ export default function App() {
 
       setTransactionMessage(
         `Enregistrement impossible : ${
-          error?.message || "erreur inconnue"
+          error?.message ||
+          "erreur inconnue"
         }`
       );
     } finally {
       setIsSavingTransaction(false);
     }
   }
+ 
 
   async function openHistory(asset) {
     setHistoryAsset(asset);
@@ -2191,7 +2698,7 @@ export default function App() {
     setUndoingTransactionId(null);
   }
 
-  async function undoTransaction(transaction) {
+    async function undoTransaction(transaction) {
     if (
       !historyAsset ||
       undoingTransactionId
@@ -2225,7 +2732,32 @@ export default function App() {
           0
       );
 
+      const {
+        error: reserveMovementError,
+      } = await supabase
+        .from("usdc_reserve_movements")
+        .delete()
+        .eq(
+          "related_transaction_id",
+          transaction.id
+        );
+
+      if (reserveMovementError) {
+        throw reserveMovementError;
+      }
+
       if (quantityBefore <= 0) {
+        const {
+          error: transactionDeleteError,
+        } = await supabase
+          .from("portfolio_transactions")
+          .delete()
+          .eq("id", transaction.id);
+
+        if (transactionDeleteError) {
+          throw transactionDeleteError;
+        }
+
         const { error } = await supabase
           .from("portfolios")
           .delete()
@@ -2273,7 +2805,7 @@ export default function App() {
         );
 
         setMessage(
-          "Transaction annulée. La position a été restaurée."
+          "Transaction annulée. La position et les réserves USDC ont été restaurées."
         );
       }
 
@@ -2295,7 +2827,7 @@ export default function App() {
     }
   }
 
-  async function deleteAsset(asset) {
+   async function deleteAsset(asset) {
     if (
       Number(asset.quantity || 0) <= 0
     ) {
@@ -2318,7 +2850,46 @@ export default function App() {
 
     try {
       if (asset.isTest) {
-        const { error: transactionsError } = await supabase
+        const {
+          data: testTransactions,
+          error: transactionsReadError,
+        } = await supabase
+          .from("portfolio_transactions")
+          .select("id")
+          .eq("portfolio_id", asset.dbId)
+          .eq("is_test", true);
+
+        if (transactionsReadError) {
+          throw transactionsReadError;
+        }
+
+        const transactionIds = (
+          testTransactions || []
+        )
+          .map((transaction) =>
+            Number(transaction.id)
+          )
+          .filter(Number.isFinite);
+
+        if (transactionIds.length > 0) {
+          const {
+            error: reserveMovementsError,
+          } = await supabase
+            .from("usdc_reserve_movements")
+            .delete()
+            .in(
+              "related_transaction_id",
+              transactionIds
+            );
+
+          if (reserveMovementsError) {
+            throw reserveMovementsError;
+          }
+        }
+
+        const {
+          error: transactionsError,
+        } = await supabase
           .from("portfolio_transactions")
           .delete()
           .eq("portfolio_id", asset.dbId)
@@ -2340,7 +2911,7 @@ export default function App() {
 
       setMessage(
         asset.isTest
-          ? `${asset.name} test a été supprimé avec son historique de test.`
+          ? `${asset.name} test a été supprimé avec son historique et ses mouvements USDC de test.`
           : `${asset.name} a été supprimé.`
       );
     } catch (error) {
@@ -2360,31 +2931,21 @@ export default function App() {
     await loadRealizedGains();
   }
 
-  const totals = useMemo(() => {
-    return assets.reduce(
-      (result, asset) => {
-        const currentValue =
-          asset.quantity *
-          asset.currentPrice;
-
-        const investedValue =
-          asset.quantity *
-          asset.buyPrice;
-
-        result.totalValueUSD +=
-          currentValue;
-
-        result.totalInvestedUSD +=
-          investedValue;
-
-        return result;
-      },
-      {
-        totalValueUSD: 0,
-        totalInvestedUSD: 0,
-      }
+        const totals = useMemo(() => {
+    const totalValueUSD = assets.reduce(
+      (total, asset) =>
+        total +
+        asset.quantity *
+          asset.currentPrice,
+      0
     );
-  }, [assets]);
+
+    return {
+      totalValueUSD,
+      totalInvestedUSD:
+        investedCapitalUSD,
+    };
+  }, [assets, investedCapitalUSD]);
 
   const profitUSD =
     totals.totalValueUSD -
@@ -2419,23 +2980,28 @@ export default function App() {
     );
   }, [availableUsdcByToken]);
 
-  const usdcReserveDetails = useMemo(() => {
+   const usdcReserveDetails = useMemo(() => {
     return Object.values(availableUsdcByToken)
       .map((reserve) => {
         const portfolioId = reserve?.portfolioId;
+
         const strategyMode =
           strategyModes[String(portfolioId)] || null;
 
-        const sales = realizedGainDetails.filter(
-          (transaction) =>
-            String(transaction.portfolio_id) ===
-            String(portfolioId)
-        );
+        const movements = Array.isArray(
+          reserve?.movements
+        )
+          ? [...reserve.movements].sort(
+              (a, b) =>
+                new Date(b.created_at || 0) -
+                new Date(a.created_at || 0)
+            )
+          : [];
 
         return {
           ...reserve,
           strategyMode,
-          sales,
+          movements,
           availableUsdc: Number(
             reserve?.availableUsdc || 0
           ),
@@ -2452,7 +3018,6 @@ export default function App() {
       );
   }, [
     availableUsdcByToken,
-    realizedGainDetails,
     strategyModes,
   ]);
 
@@ -2529,13 +3094,7 @@ export default function App() {
           style={styles.header}
           className="ld-header"
         >
-          <div style={styles.headerCopy} className="ld-header-copy">
-            <p className="ld-header-tagline">
-              Gestionnaire personnel de portefeuille
-            </p>
-          </div>
-
-                <div style={styles.headerActions} className="ld-header-actions">
+          <div style={styles.headerActions} className="ld-header-actions">
             <div style={styles.alertCenter} className="ld-alert-center">
               <button
                 type="button"
@@ -2689,6 +3248,12 @@ export default function App() {
               />
             </div>
           </div>
+
+          <div style={styles.headerCopy} className="ld-header-copy">
+            <p className="ld-header-tagline">
+              Gestionnaire personnel de portefeuille
+            </p>
+          </div>
         </header>
 
         <section
@@ -2769,7 +3334,7 @@ export default function App() {
                   symbole
                 </p>
 
-                {TEST_MODE_ENABLED && (
+                                {TEST_MODE_ENABLED && (
                   <label
                     style={{
                       display:
@@ -2788,14 +3353,24 @@ export default function App() {
                       checked={
                         isTestPosition
                       }
-                      onChange={(
-                        event
-                      ) =>
+                      onChange={(event) => {
                         setIsTestPosition(
-                          event.target
-                            .checked
-                        )
-                      }
+                          event.target.checked
+                        );
+
+                        setSelectedToken(null);
+                        setSelectedNetworkOption(
+                          null
+                        );
+                        setSearchResults([]);
+
+                        setForm((previousForm) => ({
+                          ...previousForm,
+                          search: "",
+                        }));
+
+                        setMessage("");
+                      }}
                     />
 
                     Position de test
@@ -3178,6 +3753,150 @@ export default function App() {
               />
             </div>
           </div>
+
+                  {selectedToken &&
+            Object.values(
+              availableUsdcByToken
+            ).some(
+              (reserve) =>
+                Number(
+                  reserve?.availableUsdc || 0
+                ) > 0
+            ) && (
+              <div
+                style={{
+                  marginTop: 18,
+                  marginBottom: 18,
+                  padding: 14,
+                  borderRadius: 12,
+                  border:
+                    "1px solid rgba(76,89,81,.60)",
+                  background:
+                    "rgba(3,15,11,.72)",
+                }}
+              >
+                <div
+                  style={{
+                    color: "#f1f4f2",
+                    fontSize: 14,
+                    fontWeight: 800,
+                    marginBottom: 10,
+                  }}
+                >
+                  Réserves USDC disponibles
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 8,
+                  }}
+                >
+                  {Object.values(
+                    availableUsdcByToken
+                  )
+                    .filter(
+                      (reserve) =>
+                        Number(
+                          reserve?.availableUsdc ||
+                            0
+                        ) > 0
+                    )
+                    .map((reserve) => {
+                      const reserveId = String(
+                        reserve.portfolioId
+                      );
+
+                      const isSelected =
+                        purchaseFunding.selectedReserveIds.includes(
+                          reserveId
+                        );
+
+                      return (
+                        <label
+                          key={reserveId}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent:
+                              "space-between",
+                            gap: 12,
+                            padding: "10px 12px",
+                            borderRadius: 10,
+                            border:
+                              "1px solid rgba(76,89,81,.45)",
+                            background:
+                              "rgba(7,20,15,.72)",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <span
+                            style={{
+                              display: "flex",
+                              alignItems:
+                                "center",
+                              gap: 9,
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {
+                                setPurchaseFunding(
+                                  (
+                                    previousFunding
+                                  ) => ({
+                                    ...previousFunding,
+                                    selectedReserveIds:
+                                      isSelected
+                                        ? previousFunding.selectedReserveIds.filter(
+                                            (
+                                              id
+                                            ) =>
+                                              id !==
+                                              reserveId
+                                          )
+                                        : [
+                                            ...previousFunding.selectedReserveIds,
+                                            reserveId,
+                                          ],
+                                  })
+                                );
+                              }}
+                            />
+
+                            <span
+                              style={{
+                                color:
+                                  "#d7ded9",
+                                fontSize: 13,
+                                fontWeight: 700,
+                              }}
+                            >
+                              {reserve.crypto}
+                            </span>
+                          </span>
+
+                          <strong
+                            style={{
+                              color: "#9bea87",
+                              fontSize: 13,
+                            }}
+                          >
+                                                        {formatUSD(
+                              Number(
+                                reserve.availableUsdc ||
+                                  0
+                              )
+                            )}
+                          </strong>
+                        </label>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
 
           <button
             style={{
@@ -5308,7 +6027,7 @@ export default function App() {
                                 </strong>
                               </div>
 
-                              {reserve.sales.length > 0 && (
+                              {reserve.movements.length > 0 && (
                                 <div
                                   style={{
                                     display: "grid",
@@ -5316,10 +6035,10 @@ export default function App() {
                                     marginTop: 10,
                                   }}
                                 >
-                                  {reserve.sales.map(
-                                    (sale) => (
+                                 {reserve.movements.map(
+  (movement) => (
                                       <div
-                                        key={sale.id}
+                                        key={movement.id}
                                         style={{
                                           display: "grid",
                                           gridTemplateColumns:
@@ -5330,40 +6049,59 @@ export default function App() {
                                         }}
                                       >
                                         <span>
-                                          {sale.created_at
-                                            ? new Intl.DateTimeFormat(
-                                                "fr-FR",
-                                                {
-                                                  day: "2-digit",
-                                                  month: "2-digit",
-                                                  year: "numeric",
-                                                }
-                                              ).format(
-                                                new Date(
-                                                  sale.created_at
-                                                )
-                                              )
-                                            : "—"}
-                                          {" · "}
-                                          {formatNumber(
-                                            sale.quantity
-                                          )}
-                                        </span>
+  {movement.created_at
+    ? new Intl.DateTimeFormat(
+        "fr-FR",
+        {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        }
+      ).format(
+        new Date(
+          movement.created_at
+        )
+      )
+    : "—"}
+  {" · "}
+  {movement.movement_type === "sale"
+    ? "Vente"
+    : movement.movement_type === "reload"
+    ? "Rechargement"
+    : movement.reserveDirection === "in"
+    ? `Transfert reçu${
+        movement.source_crypto
+          ? ` depuis ${String(
+              movement.source_crypto
+            ).toUpperCase()}`
+          : ""
+      }`
+    : `Transfert envoyé${
+        movement.destination_crypto
+          ? ` vers ${String(
+              movement.destination_crypto
+            ).toUpperCase()}`
+          : ""
+      }`}
+</span>
 
-                                        <strong
-                                          style={{
-                                            color: "#dce4de",
-                                          }}
-                                        >
-                                          +{formatUSD(
-                                            Number(
-                                              sale.quantity || 0
-                                            ) *
-                                              Number(
-                                                sale.unit_price || 0
-                                              )
-                                          )}
-                                        </strong>
+<strong
+  style={{
+    color:
+      movement.reserveDirection === "out"
+        ? "#fb7185"
+        : "#4ade80",
+  }}
+>
+  {movement.reserveDirection === "out"
+    ? "-"
+    : "+"}
+  {formatUSD(
+    Number(
+      movement.amount_usdc || 0
+    )
+  )}
+</strong>
                                       </div>
                                     )
                                   )}
@@ -5988,21 +6726,15 @@ export default function App() {
                 </div>
 
                 <div
-                  style={{
-                    display: "grid",
-                    gap: 12,
-                  }}
-                >
-                  {[0, 1, 2, 3].map((index) => (
-                    <div
-                      key={`trader-edit-${index}`}
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns:
-                          "minmax(0, 1fr) minmax(0, 1fr) minmax(130px, .85fr)",
-                        gap: 10,
-                      }}
-                    >
+  key={`trader-edit-${index}`}
+  className="ld-trader-level-row"
+  style={{
+    display: "grid",
+    gridTemplateColumns:
+      "minmax(0, 1fr) minmax(0, 1fr) minmax(130px, .85fr)",
+    gap: 10,
+  }}
+>
                       <input
                         type="text"
                         inputMode="decimal"
@@ -6286,7 +7018,7 @@ export default function App() {
               </div>
             )}
 
-            <div
+                        <div
               style={styles.modalFields}
             >
               <div>
@@ -6357,6 +7089,178 @@ export default function App() {
                   }
                 />
               </div>
+
+              {transactionType ===
+                "purchase" &&
+                Object.values(
+                  availableUsdcByToken
+                ).some(
+                  (reserve) =>
+                    Number(
+                      reserve?.availableUsdc ||
+                        0
+                    ) > 0
+                ) && (
+                  <div
+                    style={{
+                      gridColumn: "1 / -1",
+                    }}
+                  >
+                    <label
+                      style={styles.label}
+                    >
+                      Réserves USDC disponibles
+                    </label>
+
+                    <div
+                      style={
+                        styles.currentPositionBox
+                      }
+                    >
+                      {Object.values(
+                        availableUsdcByToken
+                      )
+                        .filter(
+                          (reserve) =>
+                            Number(
+                              reserve?.availableUsdc ||
+                                0
+                            ) > 0
+                        )
+                        .sort((a, b) => {
+                          const aIsCurrent =
+                            String(
+                              a?.portfolioId
+                            ) ===
+                            String(
+                              editingAsset.dbId
+                            );
+
+                          const bIsCurrent =
+                            String(
+                              b?.portfolioId
+                            ) ===
+                            String(
+                              editingAsset.dbId
+                            );
+
+                          if (
+                            aIsCurrent !==
+                            bIsCurrent
+                          ) {
+                            return aIsCurrent
+                              ? -1
+                              : 1;
+                          }
+
+                          return (
+                            Number(
+                              b?.availableUsdc ||
+                                0
+                            ) -
+                            Number(
+                              a?.availableUsdc ||
+                                0
+                            )
+                          );
+                        })
+                        .map((reserve) => {
+                          const reserveId =
+                            String(
+                              reserve.portfolioId
+                            );
+
+                          const isSelected =
+                            purchaseFunding.selectedReserveIds.includes(
+                              reserveId
+                            );
+
+                          const isCurrentToken =
+                            reserveId ===
+                            String(
+                              editingAsset.dbId
+                            );
+
+                          return (
+                            <label
+                              key={reserveId}
+                              style={{
+                                ...styles.line,
+                                cursor:
+                                  "pointer",
+                              }}
+                            >
+                              <span
+                                style={{
+                                  display:
+                                    "flex",
+                                  alignItems:
+                                    "center",
+                                  gap: 8,
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={
+                                    isSelected
+                                  }
+                                  onChange={() =>
+                                    setPurchaseFunding(
+                                      (
+                                        previous
+                                      ) => ({
+                                        ...previous,
+                                        selectedReserveIds:
+                                          isSelected
+                                            ? previous.selectedReserveIds.filter(
+                                                (
+                                                  id
+                                                ) =>
+                                                  id !==
+                                                  reserveId
+                                              )
+                                            : [
+                                                ...previous.selectedReserveIds,
+                                                reserveId,
+                                              ],
+                                      })
+                                    )
+                                  }
+                                />
+
+                                <span
+                                  style={
+                                    styles.lineLabel
+                                  }
+                                >
+                                  {String(
+                                    reserve.crypto ||
+                                      "USDC"
+                                  ).toUpperCase()}
+                                  {isCurrentToken
+                                    ? " · réserve du token"
+                                    : ""}
+                                </span>
+                              </span>
+
+                              <strong
+                                style={
+                                  styles.lineValue
+                                }
+                              >
+                                {formatUSD(
+                                  Number(
+                                    reserve.availableUsdc ||
+                                      0
+                                  )
+                                )}
+                              </strong>
+                            </label>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
             </div>
 
             {Number(
@@ -6812,6 +7716,29 @@ const responsiveCss = `
   .ld-summary-profit-card { grid-column: 1 / -1 !important; }
   .ld-summary-realized-card { grid-column: auto !important; }
   .ld-summary-usdc-card { grid-column: auto !important; }
+  .ld-header {
+    align-items: stretch !important;
+    flex-direction: column !important;
+    gap: 10px !important;
+  }
+  .ld-header-actions {
+    width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 12px !important;
+    order: 1 !important;
+  }
+  .ld-logo-frame { order: 1 !important; }
+  .ld-alert-center {
+    order: 2 !important;
+    margin-left: auto !important;
+  }
+  .ld-header-copy {
+    width: 100% !important;
+    order: 2 !important;
+    text-align: center !important;
+  }
 
 
   @media (max-width: 720px) {
@@ -7733,102 +8660,106 @@ const styles = {
   },
 
   strategyTopRow: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-  },
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) auto",
+  alignItems: "center",
+  gap: 8,
+},
 
-  strategyLabel: {
-    display: "flex",
-    alignItems: "center",
-    gap: 5,
-    flexShrink: 0,
-    color: "#aeb7b0",
-    fontSize: 11,
-    fontWeight: 700,
-  },
+strategyLabel: {
+  display: "flex",
+  alignItems: "center",
+  gap: 5,
+  minWidth: 0,
+  whiteSpace: "nowrap",
+  color: "#aeb7b0",
+  fontSize: 11,
+  fontWeight: 700,
+},
 
-  strategyInfo: {
-    width: 16,
-    height: 16,
-    display: "inline-grid",
-    placeItems: "center",
-    flexShrink: 0,
-    borderRadius: "50%",
-    background: "#52758a",
-    color: "#dcecf5",
-    fontSize: 10,
-    fontWeight: 900,
-    lineHeight: 1,
-  },
+strategyInfo: {
+  width: 16,
+  height: 16,
+  display: "inline-grid",
+  placeItems: "center",
+  flexShrink: 0,
+  borderRadius: "50%",
+  background: "#52758a",
+  color: "#dcecf5",
+  fontSize: 10,
+  fontWeight: 900,
+  lineHeight: 1,
+},
 
-  strategyControls: {
-    display: "flex",
-    alignItems: "stretch",
-    justifyContent: "flex-end",
-    gap: 6,
-    minWidth: 0,
-    flex: 1,
-  },
+strategyControls: {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "flex-end",
+  gap: 5,
+  flexShrink: 0,
+},
 
-  strategyChoice: {
-    display: "flex",
-    alignItems: "center",
-    gap: 7,
-    minWidth: 0,
-    padding: "7px 9px",
-    border:
-      "1px solid rgba(76,89,81,.62)",
-    borderRadius: 8,
-    background:
-      "rgba(2,12,9,.76)",
-    color: "#d7ddd8",
-    cursor: "pointer",
-  },
+strategyChoice: {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 5,
+  flexShrink: 0,
+  padding: "6px 7px",
+  boxSizing: "border-box",
+  border:
+    "1px solid rgba(76,89,81,.62)",
+  borderRadius: 8,
+  background:
+    "rgba(2,12,9,.76)",
+  color: "#d7ddd8",
+  cursor: "pointer",
+  fontSize: 13,
+  lineHeight: 1,
+},
 
-  strategyChoiceActive: {
-    border:
-      "1px solid rgba(42,220,82,.85)",
-    background:
-      "rgba(18,83,42,.22)",
-    boxShadow:
-      "0 0 10px rgba(42,220,82,.12)",
-  },
+strategyChoiceActive: {
+  border:
+    "1px solid rgba(42,220,82,.85)",
+  background:
+    "rgba(18,83,42,.22)",
+  boxShadow:
+    "0 0 10px rgba(42,220,82,.12)",
+},
 
-  strategyCheckbox: {
-    width: 18,
-    height: 18,
-    display: "grid",
-    placeItems: "center",
-    flexShrink: 0,
-    border:
-      "1px solid rgba(108,123,114,.78)",
-    borderRadius: 3,
-    background:
-      "rgba(2,12,9,.88)",
-    color: "#031006",
-    fontSize: 12,
-    fontWeight: 950,
-    lineHeight: 1,
-  },
+strategyCheckbox: {
+  width: 16,
+  height: 16,
+  display: "grid",
+  placeItems: "center",
+  flexShrink: 0,
+  border:
+    "1px solid rgba(108,123,114,.78)",
+  borderRadius: 3,
+  background:
+    "rgba(2,12,9,.88)",
+  color: "#031006",
+  fontSize: 11,
+  fontWeight: 950,
+  lineHeight: 1,
+},
 
-  strategyCheckboxActive: {
-    border:
-      "1px solid rgba(43,235,91,.95)",
-    background: "#25df62",
-    color: "#022b10",
-    boxShadow:
-      "0 0 9px rgba(37,223,98,.28)",
-  },
+strategyCheckboxActive: {
+  border:
+    "1px solid rgba(43,235,91,.95)",
+  background: "#25df62",
+  color: "#022b10",
+  boxShadow:
+    "0 0 9px rgba(37,223,98,.28)",
+},
 
-  strategyChoiceText: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "flex-start",
-    minWidth: 0,
-    lineHeight: 1.05,
-  },
+strategyChoiceText: {
+  display: "flex",
+  alignItems: "center",
+  minWidth: 0,
+  whiteSpace: "nowrap",
+  lineHeight: 1,
+},
 
   strategyEyeButton: {
     width: 38,
