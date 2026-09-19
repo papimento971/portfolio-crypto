@@ -4069,24 +4069,24 @@ const globalPerformance =
                         )}
 
                         <div>
-                          <h3
-                            style={
-                              styles.cardTitle
-                            }
-                            className="ld-card-title"
-                          >
-                            {asset.name}
-                          </h3>
+                         <h3
+  style={
+    styles.cardTitle
+  }
+  className="ld-card-title"
+>
+  {asset.symbol ||
+    asset.id}
+</h3>
 
-                          <span
-                            style={
-                              styles.cardSymbol
-                            }
-                            className="ld-card-symbol"
-                          >
-                            {asset.symbol ||
-                              asset.id}
-                          </span>
+<span
+  style={
+    styles.cardSymbol
+  }
+  className="ld-card-symbol"
+>
+  {asset.name}
+</span> 
                         </div>
                       </div>
 
