@@ -2826,159 +2826,177 @@ export default function App() {
       setUndoingTransactionId(null);
     }
   }
-
-   async function deleteAsset(asset) {
-    if (
-      Number(asset.quantity || 0) <= 0
-    ) {
-      setMessage(
-        `${asset.name} est une position clôturée. Son historique et ses gains réalisés sont conservés.`
-      );
-
-      await loadAssets();
-      await loadRealizedGains();
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Supprimer ${asset.name} du portefeuille ?`
+async function deleteAsset(asset) {
+  if (Number(asset.quantity || 0) <= 0) {
+    setMessage(
+      `${asset.name} est une position clôturée. Son historique et ses gains réalisés sont conservés.`
     );
 
-    if (!confirmed) {
+    await loadAssets();
+    await loadRealizedGains();
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `Supprimer ${asset.name} du portefeuille ? Cette suppression annulera son historique d'achat et restaurera les USDC utilisés.`
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const {
+      data: transactions,
+      error: transactionsReadError,
+    } = await supabase
+      .from("portfolio_transactions")
+      .select("id, type")
+      .eq("portfolio_id", asset.dbId);
+
+    if (transactionsReadError) {
+      throw transactionsReadError;
+    }
+
+    const transactionIds = (
+      transactions || []
+    )
+      .map((transaction) =>
+        Number(transaction.id)
+      )
+      .filter(Number.isFinite);
+
+    const hasSale = (
+      transactions || []
+    ).some(
+      (transaction) =>
+        transaction.type === "sale"
+    );
+
+    if (hasSale && !asset.isTest) {
+      setMessage(
+        `${asset.name} possède un historique de vente. La position n'a pas été supprimée afin de protéger les gains réalisés et les réserves USDC.`
+      );
       return;
     }
 
-    try {
-      if (asset.isTest) {
-        const {
-          data: testTransactions,
-          error: transactionsReadError,
-        } = await supabase
-          .from("portfolio_transactions")
-          .select("id")
-          .eq("portfolio_id", asset.dbId)
-          .eq("is_test", true);
+    if (transactionIds.length > 0) {
+      const {
+        error: reserveMovementsError,
+      } = await supabase
+        .from("usdc_reserve_movements")
+        .delete()
+        .in(
+          "related_transaction_id",
+          transactionIds
+        );
 
-        if (transactionsReadError) {
-          throw transactionsReadError;
-        }
-
-        const transactionIds = (
-          testTransactions || []
-        )
-          .map((transaction) =>
-            Number(transaction.id)
-          )
-          .filter(Number.isFinite);
-
-        if (transactionIds.length > 0) {
-          const {
-            error: reserveMovementsError,
-          } = await supabase
-            .from("usdc_reserve_movements")
-            .delete()
-            .in(
-              "related_transaction_id",
-              transactionIds
-            );
-
-          if (reserveMovementsError) {
-            throw reserveMovementsError;
-          }
-        }
-
-        const {
-          error: transactionsError,
-        } = await supabase
-          .from("portfolio_transactions")
-          .delete()
-          .eq("portfolio_id", asset.dbId)
-          .eq("is_test", true);
-
-        if (transactionsError) {
-          throw transactionsError;
-        }
+      if (reserveMovementsError) {
+        throw reserveMovementsError;
       }
+    }
 
-      const { error } = await supabase
+    const {
+      error: transactionsError,
+    } = await supabase
+      .from("portfolio_transactions")
+      .delete()
+      .eq("portfolio_id", asset.dbId);
+
+    if (transactionsError) {
+      throw transactionsError;
+    }
+
+    const { error: portfolioError } =
+      await supabase
         .from("portfolios")
         .delete()
         .eq("id", asset.dbId);
 
-      if (error) {
-        throw error;
-      }
-
-      setMessage(
-        asset.isTest
-          ? `${asset.name} test a été supprimé avec son historique et ses mouvements USDC de test.`
-          : `${asset.name} a été supprimé.`
-      );
-    } catch (error) {
-      console.error(
-        "Erreur suppression :",
-        error
-      );
-
-      setMessage(
-        "Erreur lors de la suppression."
-      );
-
-      return;
+    if (portfolioError) {
+      throw portfolioError;
     }
+
+    setMessage(
+      asset.isTest
+        ? `${asset.name} test a été supprimé avec son historique et ses mouvements USDC.`
+        : `${asset.name} a été supprimé. Ses achats ont été annulés et les USDC utilisés ont été restaurés.`
+    );
 
     await loadAssets();
     await loadRealizedGains();
+    await loadInvestedCapital();
+  } catch (error) {
+    console.error(
+      "Erreur suppression :",
+      error
+    );
+
+    setMessage(
+      "Erreur lors de la suppression."
+    );
   }
+}
+  
+const availableUsdcTotal = useMemo(() => {
+  return Object.values(availableUsdcByToken).reduce(
+    (total, reserve) => {
+      const amount = Number(
+        reserve?.availableUsdc || 0
+      );
 
-        const totals = useMemo(() => {
-    const totalValueUSD = assets.reduce(
-      (total, asset) =>
-        total +
-        asset.quantity *
-          asset.currentPrice,
-      0
-    );
+      return Number.isFinite(amount)
+        ? total + amount
+        : total;
+    },
+    0
+  );
+}, [availableUsdcByToken]);
 
-    return {
-      totalValueUSD,
-      totalInvestedUSD:
-        investedCapitalUSD,
-    };
-  }, [assets, investedCapitalUSD]);
+const totals = useMemo(() => {
+  const cryptoValueUSD = assets.reduce(
+    (total, asset) =>
+      total +
+      asset.quantity *
+        asset.currentPrice,
+    0
+  );
 
-  const profitUSD =
-    totals.totalValueUSD -
-    totals.totalInvestedUSD;
+  const totalValueUSD =
+    cryptoValueUSD +
+    availableUsdcTotal;
 
-  const totalValueEUR =
-    totals.totalValueUSD * usdToEur;
+  return {
+    totalValueUSD,
+    totalInvestedUSD:
+      investedCapitalUSD,
+  };
+}, [
+  assets,
+  investedCapitalUSD,
+  availableUsdcTotal,
+]);
 
-  const totalInvestedEUR =
-    totals.totalInvestedUSD * usdToEur;
+const profitUSD =
+  totals.totalValueUSD -
+  totals.totalInvestedUSD;
 
-  const profitEUR =
-    profitUSD * usdToEur;
+const totalValueEUR =
+  totals.totalValueUSD * usdToEur;
 
-  const globalPerformance =
-    totals.totalInvestedUSD > 0
-      ? (profitUSD /
-          totals.totalInvestedUSD) *
-        100
-      : 0;
+const totalInvestedEUR =
+  totals.totalInvestedUSD * usdToEur;
 
-  const availableUsdcTotal = useMemo(() => {
-    return Object.values(availableUsdcByToken).reduce(
-      (total, reserve) => {
-        const amount = Number(reserve?.availableUsdc || 0);
+const profitEUR =
+  profitUSD * usdToEur;
 
-        return Number.isFinite(amount)
-          ? total + amount
-          : total;
-      },
-      0
-    );
-  }, [availableUsdcByToken]);
+const globalPerformance =
+  totals.totalInvestedUSD > 0
+    ? (profitUSD /
+        totals.totalInvestedUSD) *
+      100
+    : 0;
+        
 
    const usdcReserveDetails = useMemo(() => {
     return Object.values(availableUsdcByToken)
@@ -5816,7 +5834,10 @@ export default function App() {
   }}
 >
   {showUsdcAmounts
-    ? `${formatNumber(availableUsdcTotal)} USDC`
+   ? `${availableUsdcTotal.toLocaleString("fr-FR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} USDC`
     : "••••••"}
 </strong>
 
@@ -6924,11 +6945,15 @@ export default function App() {
                             }}
                           >
                             {levelQuantity > 0
-                              ? formatNumber(
-                                  levelQuantity,
-                                  2
-                                )
-                              : "—"}
+  ? formatNumber(
+      levelQuantity,
+      levelQuantity < 0.01
+        ? 8
+        : levelQuantity < 1
+        ? 6
+        : 2
+    )
+  : "—"}
                           </div>
                         </div>
                       </div>
