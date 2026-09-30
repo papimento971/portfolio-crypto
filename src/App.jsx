@@ -1793,7 +1793,7 @@ try {
     import.meta.env.VITE_COINGECKO_API_KEY;
 
 const response = await fetch(
-  `http://localhost:3001/api/coingecko/markets?vs_currency=usd&ids=${encodeURIComponent(uniqueIds)}`
+  `/api/coingecko?vs_currency=usd&ids=${encodeURIComponent(uniqueIds)}`
 );
 
   if (response.ok) {
