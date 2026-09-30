@@ -948,6 +948,10 @@ export default function App() {
 
   const [investedCapitalUSD, setInvestedCapitalUSD] =
     useState(0);
+    const [isDashboardReady, setIsDashboardReady] =
+  useState(false);
+  const [areInitialPricesLoaded, setAreInitialPricesLoaded] =
+  useState(false);
 
      async function loadInvestedCapital() {
     const {
@@ -1024,11 +1028,21 @@ export default function App() {
         externalFundingUSD
     );
   }
-      useEffect(() => {
-    loadAssets();
-    loadRealizedGains();
-    loadInvestedCapital();
-  }, []);
+   useEffect(() => {
+  async function initializeDashboard() {
+    setIsDashboardReady(false);
+
+    await Promise.all([
+      loadAssets(),
+      loadRealizedGains(),
+      loadInvestedCapital(),
+    ]);
+
+    setIsDashboardReady(true);
+  }
+
+  initializeDashboard();
+}, []);
 
 
   async function loadAssets() {
@@ -1741,8 +1755,27 @@ export default function App() {
 
     let isCancelled = false;
 
+   async function fetchCoinLoreAssets() {
+  const response = await fetch(
+    "https://api.coinlore.net/api/tickers/?start=0&limit=100"
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `CoinLore HTTP ${response.status}`
+    );
+  }
+
+  const result = await response.json();
+
+  return Array.isArray(result?.data)
+    ? result.data
+    : [];
+}
     async function fetchPricesAndMetadata() {
       try {
+     
+ 
         const uniqueIds = [
           ...new Set(assets.map((asset) => asset.id)),
         ]
@@ -1753,19 +1786,92 @@ export default function App() {
           return;
         }
 
-        const response = await fetch(
-          `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${uniqueIds}&price_change_percentage=24h`
-        );
+     let data = [];
 
-        if (!response.ok) {
-          throw new Error("Erreur prix CoinGecko");
-        }
+try {
+  const coinGeckoApiKey =
+    import.meta.env.VITE_COINGECKO_API_KEY;
 
-        const data = await response.json();
+const response = await fetch(
+  `http://localhost:3001/api/coingecko/markets?vs_currency=usd&ids=${encodeURIComponent(uniqueIds)}`
+);
 
-        if (isCancelled) {
-          return;
-        }
+  if (response.ok) {
+    data = await response.json();
+  } else {
+    console.warn(
+      `CoinGecko indisponible (${response.status}). Utilisation des sources secondaires.`
+    );
+  }
+} catch (coinGeckoError) {
+  console.warn(
+    "CoinGecko inaccessible. Utilisation des sources secondaires.",
+    coinGeckoError
+  );
+}
+
+   if (isCancelled) {
+  return;
+}
+
+let coinLoreData = [];
+
+try {
+  console.log("COINLORE AVANT APPEL");
+
+  coinLoreData = await fetchCoinLoreAssets();
+
+  console.log(
+    "COINLORE APRES APPEL",
+    coinLoreData.length
+  );
+} catch (coinLoreError) {
+  console.warn(
+    "CoinLore inaccessible. Utilisation des autres sources secondaires.",
+    coinLoreError
+  );
+}
+
+const coinLoreBySymbol = new Map(
+  coinLoreData
+    .filter((coin) => coin?.symbol)
+    .map((coin) => [
+      String(coin.symbol).toUpperCase(),
+      coin,
+    ])
+);
+
+const coinLoreByName = new Map(
+  coinLoreData
+    .filter((coin) => coin?.name)
+    .map((coin) => [
+      String(coin.name)
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, ""),
+      coin,
+    ])
+);
+
+console.log(
+  "DIAGNOSTIC PRIX",
+  assets.map((asset) => {
+    const nameKey = String(
+      asset.name || asset.id || ""
+    )
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+
+    return {
+      id: asset.id,
+      symbol: asset.symbol,
+      name: asset.name,
+      coinLoreMatch:
+        coinLoreByName.get(nameKey)?.name || null,
+      coinLorePrice:
+        coinLoreByName.get(nameKey)?.price_usd || null,
+    };
+  })
+);    
 
         const coinMap = new Map(
           data.map((coin) => [
@@ -1808,12 +1914,35 @@ export default function App() {
         const updatedAssets = await Promise.all(
           assets.map(async (asset) => {
             const coinData = coinMap.get(asset.id);
+            const assetSymbol = String(
+  coinData?.symbol ||
+  asset.symbol ||
+  ""
+).toUpperCase();
 
-            let currentPrice =
-              coinData?.currentPrice !== null &&
-              coinData?.currentPrice !== undefined
-                ? coinData.currentPrice
-                : asset.currentPrice;
+const assetNameKey = String(
+  asset.name ||
+  asset.id ||
+  ""
+)
+  .toLowerCase()
+  .replace(/[^a-z0-9]/g, "");
+
+const coinLoreCoin =
+  (assetSymbol
+    ? coinLoreBySymbol.get(assetSymbol)
+    : null) ||
+  (assetNameKey
+    ? coinLoreByName.get(assetNameKey)
+    : null);
+
+           let currentPrice =
+  coinData?.currentPrice !== null &&
+  coinData?.currentPrice !== undefined
+    ? coinData.currentPrice
+    : Number(coinLoreCoin?.price_usd) > 0
+      ? Number(coinLoreCoin.price_usd)
+      : asset.currentPrice;
 
             let priceChange24h =
               coinData?.priceChange24h !== null &&
@@ -1822,10 +1951,10 @@ export default function App() {
                 : asset.priceChange24h;
 
             if (
-              (!coinData ||
-                coinData.currentPrice === null) &&
-              asset.contractAddress
-            ) {
+  (!Number.isFinite(Number(currentPrice)) ||
+    Number(currentPrice) <= 0) &&
+  asset.contractAddress
+) {
               try {
                 const dexResponse = await fetch(
                   `https://api.dexscreener.com/latest/dex/tokens/${asset.contractAddress}`
@@ -1921,6 +2050,7 @@ export default function App() {
             })
           );
         }
+        setAreInitialPricesLoaded(true);
       } catch (error) {
         console.error("Erreur prix crypto :", error);
       }
@@ -3298,13 +3428,9 @@ const globalPerformance =
                   : "#fb7185",
             }}
           >
-            {globalPerformance >= 0
-              ? "+"
-              : ""}
-            {globalPerformance.toFixed(
-              2
-            )}{" "}
-            %
+            {isDashboardReady && areInitialPricesLoaded
+  ? `${globalPerformance >= 0 ? "+" : ""}${globalPerformance.toFixed(2)} %`
+  : "—"}
           </strong>
 
           <span
