@@ -1552,6 +1552,12 @@ export default function App() {
           )}`
         );
 
+console.log("DIAGNOSTIC REQUETE COINGECKO", {
+  requestedIds: uniqueIds,
+  status: response.status,
+  contentType: response.headers.get("content-type"),
+});
+
         if (!response.ok) {
           throw new Error("Erreur de recherche CoinGecko");
         }
@@ -1793,7 +1799,10 @@ try {
     import.meta.env.VITE_COINGECKO_API_KEY;
 
 const response = await fetch(
-  `/api/coingecko?vs_currency=usd&ids=${encodeURIComponent(uniqueIds)}`
+
+
+`/api/coingecko/markets?vs_currency=usd&ids=${encodeURIComponent(uniqueIds)}`,
+
 );
 
   if (response.ok) {
@@ -1913,7 +1922,21 @@ console.log(
 
         const updatedAssets = await Promise.all(
           assets.map(async (asset) => {
-            const coinData = coinMap.get(asset.id);
+        
+const coinData = coinMap.get(String(asset.id || "").trim().toLowerCase());
+   
+            
+
+if (String(asset.id).toLowerCase().includes("grass")) {
+
+  console.log("DIAGNOSTIC COINGECKO", {
+    assetId: asset.id,
+    coinFound: Boolean(coinData),
+    price: coinData?.currentPrice ?? null,
+    availableIds: [...coinMap.keys()],
+  });
+}
+
             const assetSymbol = String(
   coinData?.symbol ||
   asset.symbol ||
