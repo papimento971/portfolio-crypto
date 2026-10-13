@@ -1219,68 +1219,8 @@ export default function App() {
     }
 
     const sales = data || [];
-    const { data: existingReserveSales, error: reserveReadError } =
-      await supabase
-        .from("usdc_reserve_movements")
-        .select("related_transaction_id")
-        .eq("movement_type", "sale");
-
-    if (reserveReadError) {
-      console.error(
-        "Erreur lecture registre USDC :",
-        reserveReadError
-      );
-    } else {
-      const existingTransactionIds = new Set(
-        (existingReserveSales || [])
-          .map((movement) =>
-            Number(movement.related_transaction_id)
-          )
-          .filter(Number.isFinite)
-      );
-
-      const missingReserveSales = sales
-        .filter(
-          (transaction) =>
-            !existingTransactionIds.has(
-              Number(transaction.id)
-            )
-        )
-        .map((transaction) => ({
-          source_portfolio_id:
-            transaction.portfolio_id ?? null,
-          source_crypto:
-            String(transaction.crypto || ""),
-          destination_portfolio_id: null,
-          destination_crypto: null,
-          movement_type: "sale",
-          amount_usdc:
-            Number(transaction.quantity || 0) *
-            Number(transaction.unit_price || 0),
-          related_transaction_id:
-            transaction.id,
-        }))
-        .filter(
-          (movement) =>
-            movement.source_crypto &&
-            Number.isFinite(movement.amount_usdc) &&
-            movement.amount_usdc > 0
-        );
-
-      if (missingReserveSales.length > 0) {
-        const { error: reserveInsertError } =
-          await supabase
-            .from("usdc_reserve_movements")
-            .insert(missingReserveSales);
-
-        if (reserveInsertError) {
-          console.error(
-            "Erreur synchronisation ventes vers registre USDC :",
-            reserveInsertError
-          );
-        }
-      }
-    }
+    // Lecture seule : ne jamais recréer des mouvements USDC historiques
+    // au chargement. Toute régularisation doit être explicite et traçable.
            const {
       data: reserveMovements,
       error: reserveMovementsError,
@@ -1356,6 +1296,23 @@ export default function App() {
             !Number.isFinite(amount) ||
             amount <= 0
           ) {
+            return;
+          }
+
+          // Régularisation explicite du solde USDC, sans vente ni achat.
+          if (movement.movement_type === "adjustment") {
+            const reserve = ensureReserve(
+              movement.source_portfolio_id,
+              sourceCrypto
+            );
+
+            if (!reserve) return;
+
+            reserve.availableUsdc -= amount;
+            reserve.movements.push({
+              ...movement,
+              reserveDirection: "out",
+            });
             return;
           }
 
@@ -1551,12 +1508,6 @@ export default function App() {
             searchText
           )}`
         );
-
-console.log("DIAGNOSTIC REQUETE COINGECKO", {
-  requestedIds: uniqueIds,
-  status: response.status,
-  contentType: response.headers.get("content-type"),
-});
 
         if (!response.ok) {
           throw new Error("Erreur de recherche CoinGecko");
@@ -6225,6 +6176,8 @@ const globalPerformance =
     ? "Vente"
     : movement.movement_type === "reload"
     ? "Rechargement"
+    : movement.movement_type === "adjustment"
+    ? "Régularisation du solde réel"
     : movement.reserveDirection === "in"
     ? `Transfert reçu${
         movement.source_crypto
