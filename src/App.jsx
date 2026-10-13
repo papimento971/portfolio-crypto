@@ -1752,7 +1752,7 @@ try {
 const response = await fetch(
 
 
-`/api/coingecko/markets?vs_currency=usd&ids=${encodeURIComponent(uniqueIds)}`,
+`/api/coingecko?vs_currency=usd&ids=${encodeURIComponent(uniqueIds)}`,
 
 );
 
